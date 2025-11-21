@@ -1,5 +1,6 @@
 #include "sha512.h"
 #include <string.h>  // memcpy, memset 사용
+#include "error.h"   // 에러 코드
 
 
 // 매크로 & 상수
@@ -14,7 +15,7 @@
 #define Ch(x,y,z)   (((x)&(y)) ^ (~(x)&(z)))
 #define Maj(x,y,z)  (((x)&(y)) ^ ((x)&(z)) ^ ((y)&(z)))
 
-// 초기 IV (필기 1.1.3 “SHA2-512 IV”)
+// 초기 IV (“SHA2-512 IV”)
 static const uint64_t H0[8] = {
   0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
   0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
@@ -93,10 +94,16 @@ static void sha512_transform(SHA512_CTX* ctx, const uint8_t block[SHA512_BLOCK_S
 }
 
 // 초기 상태를 IV로 세팅, 총 길이/버퍼 길이 초기화
-void SHA512_init(SHA512_CTX* ctx) {
+int SHA512_init(SHA512_CTX* ctx) {
+
+    // 입력 포인터가 NULL이면 parameter error 반환
+    if (!ctx) return CRYPTO_ERR_PARAM;
+
     memcpy(ctx->state, H0, sizeof(H0));
     ctx->bitlen[0] = ctx->bitlen[1] = 0;
     ctx->datalen = 0;
+
+    return CRYPTO_OK;  // 정상 종료
 }
 
 // 총 비트 길이 누적 보조
@@ -107,7 +114,12 @@ static inline void add_bits(SHA512_CTX* ctx, uint64_t bits) {
     ctx->bitlen[1] = lo;
 }
 // 들어온 바이트 수를 비트 수(x8)로 변환해 총 길이에 누적
-void SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
+int SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
+
+    // ctx가 NULL이거나 data가 NULL + len>0이면 잘못된 입력
+    if (!ctx) return CRYPTO_ERR_PARAM;
+    if (!data && len > 0) return CRYPTO_ERR_PARAM;
+
     for (size_t i = 0; i < len; ++i) {
         ctx->buffer[ctx->datalen++] = data[i];
         if (ctx->datalen == SHA512_BLOCK_SIZE) {
@@ -122,10 +134,14 @@ void SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
             ctx->datalen = 0;
         }
     }
+    return CRYPTO_OK;
 }
 
 // 패딩 + 마지막 변환 + 출력
-void SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]) {
+int SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]) {
+
+    // ctx 또는 출력버퍼가 NULL이면 parameter error
+    if (!ctx || !out) return CRYPTO_ERR_PARAM;
 
     // 0) 남아 있는 데이터 길이를 길이 누적에 먼저 반영 (비트 단위)
     //    반드시 0x80를 붙이기 전에!
@@ -153,17 +169,12 @@ void SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]) {
     store_be64(len_be + 8, ctx->bitlen[1]);  // 하위 64비트
     memcpy(ctx->buffer + SHA512_BLOCK_SIZE - 16, len_be, 16);
 
-
-
-
-
     sha512_transform(ctx, ctx->buffer);   // 패딩된 마지막 블록 압축
 
     // 4) digest 출력(big-endian)
     // 최종 state[0...7]를 big-endian 64바이트로 직렬화 -> 최종 해시
     for (int i = 0; i < 8; ++i) store_be64(out + 8 * i, ctx->state[i]);
 
-    // 민감 상태 지우기
-    memset(ctx, 0, sizeof(*ctx));
-}
 
+    return CRYPTO_OK;
+}

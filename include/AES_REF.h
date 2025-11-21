@@ -3,23 +3,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "crypto_api.h"
 
 /* 공통 byte 타입 정의 (여러 헤더에서 중복 정의 방지) */
 #ifndef BYTE_TYPE_DEFINED
 #define BYTE_TYPE_DEFINED
 typedef uint8_t byte;
 #endif
-
-// AES 키 길이 상수
-#define AES_128_KEY_SIZE 16
-#define AES_192_KEY_SIZE 24
-#define AES_256_KEY_SIZE 32
-#define AES_BLOCK_SIZE 16
-
-// AES 라운드 수
-#define AES_128_ROUNDS 10
-#define AES_192_ROUNDS 12
-#define AES_256_ROUNDS 14
 
 // 함수 선언
 int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],

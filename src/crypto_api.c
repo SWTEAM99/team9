@@ -99,9 +99,9 @@ int AES_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
         return CRYPTO_ERR_PARAM;
 
     // --- 지원되지 않는 키 길이 검사 ---
-    if (key_len != AES_KEY_SIZE_128 &&
-        key_len != AES_KEY_SIZE_192 &&
-        key_len != AES_KEY_SIZE_256)
+    if (key_len != AES_128_KEY_SIZE &&
+        key_len != AES_192_KEY_SIZE &&
+        key_len != AES_256_KEY_SIZE)
         return CRYPTO_ERR_KEYLEN;
 
     // --- 구현 방식에 따라 함수 포인터로 호출 ---
@@ -144,9 +144,9 @@ int AES_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
         return CRYPTO_ERR_PARAM;
 
     // --- 키 길이 검사 ---
-    if (key_len != AES_KEY_SIZE_128 &&
-        key_len != AES_KEY_SIZE_192 &&
-        key_len != AES_KEY_SIZE_256)
+    if (key_len != AES_128_KEY_SIZE &&
+        key_len != AES_192_KEY_SIZE &&
+        key_len != AES_256_KEY_SIZE)
         return CRYPTO_ERR_KEYLEN;
 
     // --- 구현 방식에 따라 함수 포인터로 호출 ---
@@ -182,11 +182,28 @@ int AES_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
  *     2. SHA512_update() : 입력 데이터 처리
  *     3. SHA512_final()  : 최종 패딩 및 결과 출력
  * ================================================================ */
-void SHA512_hash(const uint8_t* data, size_t len, uint8_t out[SHA512_DIGEST_SIZE]) {
+int SHA512_hash(const uint8_t* data, size_t len, uint8_t out[SHA512_DIGEST_SIZE]) {
     SHA512_CTX ctx;
-    SHA512_init(&ctx);
-    SHA512_update(&ctx, data, len);
-    SHA512_final(&ctx, out);
+
+    // SHA512 초기화
+    int rc = SHA512_init(&ctx);
+    if (rc != CRYPTO_OK) {
+        return rc;  // 초기화 실패 시 그대로 에러 반환
+    }
+
+    // SHA512 데이터 처리
+    rc = SHA512_update(&ctx, data, len);
+    if (rc != CRYPTO_OK) {
+        return rc;  // update 실패 시 에러 반환
+    }
+
+    // SHA512 최종 digest 계산
+    rc = SHA512_final(&ctx, out);
+    if (rc != CRYPTO_OK) {
+        return rc;  // final 실패 시 에러 반환
+    }
+
+    return CRYPTO_OK;  // 모든 과정 정상 종료
 }
 
 /* ================================================================
@@ -340,24 +357,32 @@ int Mac(const byte* s, size_t s_len, const byte* k, size_t k_len,
  * 요약:
  *   return (Mac(s, k, msg) == mac_tag) ? VALID(1) : INVALID(0);
  * ================================================================ */
-int Vrfy(const byte* s, size_t s_len, const byte* k, size_t k_len,
-    int tag_len, const byte* msg, size_t msg_len, const byte* mac_tag) {
-    if (!k || !msg || !mac_tag || tag_len <= 0 || tag_len > SHA512_DIGEST_SIZE) {
-        return 0;
+int Vrfy(const byte* s, size_t s_len,
+    const byte* k, size_t k_len,
+    int tag_len,
+    const byte* msg, size_t msg_len,
+    const byte* mac_tag)
+{
+    if (!s || !k || !msg || !mac_tag ||
+        tag_len <= 0 || tag_len > SHA512_DIGEST_SIZE) {
+        return CRYPTO_ERR_PARAM;
     }
 
     byte computed_tag[SHA512_DIGEST_SIZE];
 
-    if (Mac(s, s_len, k, k_len, tag_len, msg, msg_len, computed_tag) != 0) {
-        return 0;
+    int err = Mac(s, s_len, k, k_len, tag_len, msg, msg_len, computed_tag);
+    if (err != CRYPTO_OK) {
+        return CRYPTO_ERR_INTERNAL;
     }
 
-    int result = 1;
+    int diff = 0;
     for (int i = 0; i < tag_len; i++) {
-        if (computed_tag[i] != mac_tag[i]) {
-            result = 0;
-        }
+        diff |= (computed_tag[i] ^ mac_tag[i]);
     }
 
-    return result;
+    if (diff != 0) {
+        return CRYPTO_ERR_INVALID;
+    }
+
+    return CRYPTO_OK;
 }

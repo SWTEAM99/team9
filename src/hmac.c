@@ -3,21 +3,49 @@
 #include "sha512.h"
 #include <string.h>
 #include <stdlib.h>
-#include <time.h>
 
+#ifdef _WIN32
+// Windows: BCryptGenRandom 사용
+#include <windows.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
+#else
+// macOS / Linux: /dev/urandom 사용
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#endif
 
-// 랜덤 바이트 생성 헬퍼 함수 
+// 랜덤 바이트 생성 헬퍼 함수 (플랫폼별 안전한 난수 생성)
 static int generate_random_bytes(byte* buf, size_t len) {
-    static int initialized = 0;
-    if (!initialized) {
-        srand((unsigned int)time(NULL));
-        initialized = 1;
+    if (!buf || len == 0) {
+        return CRYPTO_ERR_PARAM;
     }
 
-    for (size_t i = 0; i < len; i++) {
-        buf[i] = (byte)(rand() & 0xFF);
+#ifdef _WIN32
+    /* ---- Windows: BCryptGenRandom ---- */
+    NTSTATUS st = BCryptGenRandom(NULL, buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    return (st == 0) ? CRYPTO_OK : CRYPTO_ERR_RANDOM;
+#else
+    /* ---- macOS / Linux: /dev/urandom ---- */
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        return CRYPTO_ERR_RANDOM;
     }
-    return 0;
+
+    size_t remaining = len;
+    while (remaining > 0) {
+        ssize_t r = read(fd, buf + (len - remaining), remaining);
+        if (r <= 0) {
+            close(fd);
+            return CRYPTO_ERR_RANDOM;
+        }
+        remaining -= (size_t)r;
+    }
+
+    close(fd);
+    return CRYPTO_OK;
+#endif
 }
 
 // GenKey: 해시 키 s와 키 k 생성
@@ -31,12 +59,12 @@ int GenKey(int l, byte* s, byte* k) {
     size_t byte_len = (l + 7) / 8;  // 비트를 바이트로 변환
 
     // 해시 키 s 생성 (랜덤 바이트 생성)
-    if (generate_random_bytes(s, byte_len) != 0) {
+    if (generate_random_bytes(s, byte_len) != CRYPTO_OK) {
         return CRYPTO_ERR_RANDOM;
     }
 
     // 키 k 생성 (랜덤 바이트 생성)
-    if (generate_random_bytes(k, byte_len) != 0) {
+    if (generate_random_bytes(k, byte_len) != CRYPTO_OK) {
         return CRYPTO_ERR_RANDOM;
     }
 

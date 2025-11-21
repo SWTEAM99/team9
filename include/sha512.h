@@ -13,8 +13,8 @@ typedef struct {
     uint32_t datalen;              // 현재 버퍼에 쌓인 바이트 수(0~128)
 } SHA512_CTX;
 
-void SHA512_init(SHA512_CTX* ctx);
-void SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len);
-void SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]);
+int SHA512_init(SHA512_CTX* ctx);
+int SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len);
+int SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]);
 
 #endif

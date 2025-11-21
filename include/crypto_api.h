@@ -2,6 +2,7 @@
 #define CRYPTO_API_H
 
 #include <stdint.h>   // 고정폭 정수형 (uint32_t, uint64_t 등) 사용을 위해 포함
+#include "error.h"    // API에서 사용하는 에러 코드 정의
 
 /* =========================================================*/
 
@@ -11,10 +12,14 @@
  *  - AES는 128비트(16바이트) 고정 블록 크기를 사용한다.
  *  - 키 길이는 표준에 따라 128 / 192 / 256비트(16 / 24 / 32바이트)를 사용.
  */
+#define AES_128_KEY_SIZE 16   // AES-128 키 길이 (바이트)
+#define AES_192_KEY_SIZE 24  // AES-192 키 길이
+#define AES_256_KEY_SIZE 32   // AES-256 키 길이
 #define AES_BLOCK_SIZE     16   // AES 블록 크기 (128비트)
-#define AES_KEY_SIZE_128   16   // AES-128 키 길이 (바이트)
-#define AES_KEY_SIZE_192   24   // AES-192 키 길이
-#define AES_KEY_SIZE_256   32   // AES-256 키 길이
+
+#define AES_128_ROUNDS 10
+#define AES_192_ROUNDS 12
+#define AES_256_ROUNDS 14
 
  /**
   * @brief SHA-2 관련 상수
@@ -42,19 +47,6 @@
 #define BYTE_TYPE_DEFINED
 typedef uint8_t byte;
 #endif
-
-/* =========================================================
- * 오류 반환 코드 (성공 / 실패)
- * ========================================================= */
-
-#define CRYPTO_OK             0    // 정상 종료
-#define CRYPTO_ERR_PARAM     -1    // 잘못된 파라미터(NULL, 길이 오류 등)
-#define CRYPTO_ERR_KEYLEN    -2    // 지원하지 않는 키 길이
-#define CRYPTO_ERR_MODE      -3    // 지원하지 않는 모드
-#define CRYPTO_ERR_PADDING   -4    // CBC 패딩 오류
-#define CRYPTO_ERR_MEMORY    -5    // 메모리 오류
-#define CRYPTO_ERR_INTERNAL  -6    // 함수 내부 오류
-
 
  /* =========================================================
   * AES 구현 옵션
@@ -159,7 +151,7 @@ int CTR_crypt(
  * ========================================================= */
 
  /* 원샷 SHA-512 */
-void SHA512_hash(const uint8_t* data, size_t len, uint8_t out[SHA512_DIGEST_SIZE]);
+int SHA512_hash(const uint8_t* data, size_t len, uint8_t out[SHA512_DIGEST_SIZE]);
 
 
 /* =========================================================
