@@ -1,22 +1,4 @@
-/*
- * crypto_api.c
- * --------------------------------------------------------------------
- * 이 파일은 AES 블록 암호화를 위한 상위 래퍼(wrapper) 코드입니다.
- *  - AES_IMPL_REF : 레퍼런스 버전(AES_REF.c / AES_REF.h)
- *  - AES_IMPL_TBL : 테이블 룩업 버전(aes_implnn.c / 헤더파일.h)
- *
- * 즉, 사용자는 crypto_api.h만 포함하고 AES_encrypt_block()을 호출하면
- * 내부적으로 선택된 구현에 따라 자동으로 적절한 AES 함수를 실행합니다.
- * --------------------------------------------------------------------
- */
-
 #include "crypto_api.h"   // AES_Impl enum, 상수, 오류 코드 정의
-#include "error.h"        // 에러 처리 함수
-#include "AES_REF.h"      // 레퍼런스 버전 AES 함수 선언
-#include "AES_TBL_CORE.h"       // 테이블 룩업 버전 AES_TBL_CTX, 함수 선언
-#include "sha512.h" // sha2-512 해시함수 
-#include "hmac.h" // HMAC구현 
-
 #include <string.h>       // memcpy 등 기본 유틸 사용
 #include <stdlib.h>
 
@@ -290,7 +272,7 @@ int Mac(const byte* s, size_t s_len, const byte* k, size_t k_len,
 
     free(first_input);
 
-    size_t second_input_len = SHA512_BLOCK_SIZE + s_len + SHA512_DIGEST_SIZE;
+    size_t second_input_len = SHA512_BLOCK_SIZE  + SHA512_DIGEST_SIZE;
     byte* second_input = (byte*)malloc(second_input_len);
     if (!second_input) {
         return CRYPTO_ERR_MEMORY;
@@ -299,11 +281,6 @@ int Mac(const byte* s, size_t s_len, const byte* k, size_t k_len,
     offset = 0;
     memcpy(second_input, k1, SHA512_BLOCK_SIZE);
     offset += SHA512_BLOCK_SIZE;
-
-    if (s_len > 0 && s != NULL) {
-        memcpy(second_input + offset, s, s_len);
-        offset += s_len;
-    }
 
     memcpy(second_input + offset, hash_output, SHA512_DIGEST_SIZE);
 

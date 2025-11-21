@@ -24,8 +24,6 @@ const char* crypto_error_string(int err_code) {
         return "Buffer too small";
     case CRYPTO_ERR_INVALID:
         return "Invalid input data";
-    case CRYPTO_ERR_NOT_IMPL:
-        return "Not implemented";
     case CRYPTO_ERR_IO:
         return "I/O error";
     case CRYPTO_ERR_RANDOM:

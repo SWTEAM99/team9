@@ -19,9 +19,8 @@
 #define CRYPTO_ERR_INTERNAL   -6    // 내부 오류 (예상치 못한 오류)
 #define CRYPTO_ERR_BUFFER     -7    // 버퍼 크기 부족
 #define CRYPTO_ERR_INVALID    -8    // 잘못된 입력 데이터
-#define CRYPTO_ERR_NOT_IMPL   -9    // 구현되지 않은 기능
-#define CRYPTO_ERR_IO         -10   // 입출력 오류
-#define CRYPTO_ERR_RANDOM     -11   // 난수 생성 오류
+#define CRYPTO_ERR_IO         -9   // 입출력 오류
+#define CRYPTO_ERR_RANDOM     -10   // 난수 생성 오류
 
 /* =========================================================
  * 에러 처리 함수

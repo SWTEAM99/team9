@@ -3,7 +3,22 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "crypto_api.h"
+
+/**
+ * @brief AES 관련 상수 정의
+ * @details
+ *  - AES는 128비트(16바이트) 고정 블록 크기를 사용한다.
+ *  - 키 길이는 표준에 따라 128 / 192 / 256비트(16 / 24 / 32바이트)를 사용.
+ */
+#define AES_128_KEY_SIZE 16   // AES-128 키 길이 (바이트)
+#define AES_192_KEY_SIZE 24  // AES-192 키 길이
+#define AES_256_KEY_SIZE 32   // AES-256 키 길이
+#define AES_BLOCK_SIZE 16   // AES 블록 크기 (128비트)
+
+#define AES_128_ROUNDS 10
+#define AES_192_ROUNDS 12
+#define AES_256_ROUNDS 14
+
 
 /* 공통 byte 타입 정의 (여러 헤더에서 중복 정의 방지) */
 #ifndef BYTE_TYPE_DEFINED

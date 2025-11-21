@@ -3,37 +3,10 @@
 
 #include <stdint.h>   // 고정폭 정수형 (uint32_t, uint64_t 등) 사용을 위해 포함
 #include "error.h"    // API에서 사용하는 에러 코드 정의
-
-/* =========================================================*/
-
-/**
- * @brief AES 관련 상수 정의
- * @details
- *  - AES는 128비트(16바이트) 고정 블록 크기를 사용한다.
- *  - 키 길이는 표준에 따라 128 / 192 / 256비트(16 / 24 / 32바이트)를 사용.
- */
-#define AES_128_KEY_SIZE 16   // AES-128 키 길이 (바이트)
-#define AES_192_KEY_SIZE 24  // AES-192 키 길이
-#define AES_256_KEY_SIZE 32   // AES-256 키 길이
-#define AES_BLOCK_SIZE     16   // AES 블록 크기 (128비트)
-
-#define AES_128_ROUNDS 10
-#define AES_192_ROUNDS 12
-#define AES_256_ROUNDS 14
-
- /**
-  * @brief SHA-2 관련 상수
-  * @details
-  *  - SHA-512 출력: 64바이트 (512비트)
-  */
-#define SHA512_BLOCK_SIZE   128    // SHA-512 입력 블록 크기
-#define SHA512_DIGEST_SIZE   64    // SHA-512 출력(해시) 크기
-
-  /**
-   * @brief 기타 상수
-   */
-#define CRYPTO_MAX_KEY_SIZE AES_KEY_SIZE_256   // AES에서 사용 가능한 최대 키 크기
-
+#include "AES_REF.h"      // 레퍼런스 버전 AES 함수 선언
+#include "AES_TBL_CORE.h"       // 테이블 룩업 버전 AES_TBL_CTX, 함수 선언
+#include "sha512.h" // sha2-512 해시함수 
+#include "hmac.h" // HMAC구현 
 
    /* =========================================================
     * 기본 타입 정의

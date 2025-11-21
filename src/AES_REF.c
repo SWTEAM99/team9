@@ -65,7 +65,7 @@ int aes_key_expansion(const byte* key, byte key_size, byte* round_keys) {
     byte rounds = get_rounds(key_size);
     if (rounds == 0) return CRYPTO_ERR_KEYLEN;
 
-    byte temp[4];
+    byte temp[4] = { 0 };
     int i;
     int max_round_keys = 4 * (rounds + 1);
 
@@ -163,7 +163,7 @@ void aes_shift_rows(byte* state) {
 
 // 열 혼합
 void aes_mix_columns(byte* state) {
-    byte temp[4];
+    byte temp[4] = { 0 };
 
     for (int i = 0; i < 4; i++) {
         temp[0] = xtimes(state[i * 4]) ^ (xtimes(state[i * 4 + 1]) ^ state[i * 4 + 1]) ^ state[i * 4 + 2] ^ state[i * 4 + 3];
@@ -214,7 +214,7 @@ void aes_inv_shift_rows(byte* state) {
 
 // 역 열 혼합
 void aes_inv_mix_columns(byte* state) {
-    byte temp[16];
+    byte temp[16] = { 0 };
     byte array[4][4] = {
         {0x0e, 0x0b, 0x0d, 0x09},
         {0x09, 0x0e, 0x0b, 0x0d},
@@ -325,7 +325,7 @@ int AES_REF_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE
         return CRYPTO_ERR_INTERNAL;
     }
 
-    byte state[16];
+    byte state[16] = { 0 };
 
     // 입력을 state 배열로 복사
     for (int i = 0; i < 16; i++) {
