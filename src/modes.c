@@ -1,17 +1,14 @@
 ﻿#include "crypto_api.h"
 #include "error.h"
 #include <string.h>
+#include <errno.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #else
 #include <fcntl.h>
 #include <unistd.h>
-#include <errno.h>
 #endif
 
 /* ---------- 공통 유틸 ---------- */
@@ -64,7 +61,7 @@ int CRYPTO_randomBytes(byte* out, int len) {
     CryptReleaseContext(hProv, 0);
     return CRYPTO_OK;
 #else
-    /* Linux/macOS: /dev/urandom 사용 */
+    /* macOS/Linux: /dev/urandom 사용 */
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd < 0) {
         return CRYPTO_ERR_RANDOM;
@@ -97,7 +94,6 @@ int CBC_encrypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],                 /* block_size bytes */
-    CBC_Padding padding,
     const byte* plaintext, int pt_len,
     byte* ciphertext, int* ct_len,
     const void* user_ctx
@@ -107,18 +103,9 @@ int CBC_encrypt(
 
     int full = pt_len / block_size;
     int rem = pt_len % block_size;
-    int total;
 
-    if (padding == CBC_PADDING_NONE) {
-        if (rem) return CRYPTO_ERR_PADDING;
-        total = pt_len;
-    }
-    else if (padding == CBC_PADDING_PKCS7) {
-        total = pt_len + pkcs7_padlen(pt_len, block_size);
-    }
-    else {
-        return CRYPTO_ERR_MODE;
-    }
+    // 항상 PKCS7 패딩 적용 (모든 경우에서 패딩 가능)
+    int total = pt_len + pkcs7_padlen(pt_len, block_size);
     *ct_len = total;
 
     byte prev[32];
@@ -133,16 +120,15 @@ int CBC_encrypt(
         memcpy(prev, y, block_size);
     }
 
-    if (padding == CBC_PADDING_PKCS7) {
-        byte last[32] = { 0 };
-        if (rem) memcpy(last, plaintext + block_size * full, rem);
-        int rc = pkcs7_apply_last(last, rem, block_size);
-        if (rc != CRYPTO_OK) return rc;
-        byte x[32], y[32];
-        xor_block(x, last, prev, block_size);
-        encrypt_block(x, y, user_ctx);
-        memcpy(ciphertext + block_size * full, y, block_size);
-    }
+    // 마지막 블록 처리 (항상 PKCS7 패딩 적용)
+    byte last[32] = { 0 };
+    if (rem) memcpy(last, plaintext + block_size * full, rem);
+    int rc = pkcs7_apply_last(last, rem, block_size);
+    if (rc != CRYPTO_OK) return rc;
+    byte x[32], y[32];
+    xor_block(x, last, prev, block_size);
+    encrypt_block(x, y, user_ctx);
+    memcpy(ciphertext + block_size * full, y, block_size);
     return CRYPTO_OK;
 }
 
@@ -150,7 +136,6 @@ int CBC_decrypt(
     void (*decrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],                 /* block_size bytes */
-    CBC_Padding padding,
     const byte* ciphertext, int ct_len,
     byte* plaintext, int* pt_len,
     const void* user_ctx
@@ -171,13 +156,9 @@ int CBC_decrypt(
     }
 
     int out_len = ct_len;
-    if (padding == CBC_PADDING_PKCS7) {
-        int rc = pkcs7_unpad_inplace(plaintext, &out_len, block_size);
-        if (rc != CRYPTO_OK) return rc;
-    }
-    else if (padding != CBC_PADDING_NONE) {
-        return CRYPTO_ERR_MODE;
-    }
+    // 항상 PKCS7 패딩 제거
+    int rc = pkcs7_unpad_inplace(plaintext, &out_len, block_size);
+    if (rc != CRYPTO_OK) return rc;
     *pt_len = out_len;
     return CRYPTO_OK;
 }

@@ -37,16 +37,16 @@ typedef enum {
 } AES_Impl;
 
 /**
- * @brief CBC 모드 패딩 방식
+ * @brief AES 키/구현 정보를 CBC/CTR 콜백에 전달하기 위한 컨텍스트
  * @details
- *  - NONE  : 입력 데이터가 블록 크기(16) 배수일 때만 처리 (패딩 없음)
- *  - PKCS7 : 일반 텍스트/파일 암호화에 적합한 표준 패딩
+ *  - CBC_encrypt, CBC_decrypt, CTR_crypt 함수의 user_ctx 파라미터로 사용
+ *  - 콜백 함수에서 키와 구현 방식을 참조할 수 있도록 함
  */
-typedef enum {
-    CBC_PADDING_NONE = 0,
-    CBC_PADDING_PKCS7 = 1
-} CBC_Padding;
-
+typedef struct {
+    const byte* key;      // 암호화 키
+    int         key_len;  // 키 길이 (16, 24, 32 바이트)
+    AES_Impl    impl;     // AES 구현 방식 (AES_IMPL_REF 또는 AES_IMPL_TBL)
+} AES_CTX;
 
 /* =========================================================
  * AES 블록 암/복호화 API
@@ -82,7 +82,6 @@ int CBC_encrypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],
-    CBC_Padding padding,
     const byte* plaintext, int pt_len,
     byte* ciphertext, int* ct_len,
     const void* user_ctx
@@ -95,7 +94,6 @@ int CBC_decrypt(
     void (*decrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],
-    CBC_Padding padding,
     const byte* ciphertext, int ct_len,
     byte* plaintext, int* pt_len,
     const void* user_ctx
