@@ -3,17 +3,19 @@
 #include "error.h"   // 에러 코드
 
 
-// 매크로 & 상수
+/* 매크로 & 상수 */
+/* 64비트 우측 순환 시프트 (Rotate Right) */
 #define ROTR(x,n)   (((x) >> (n)) | ((x) << (64 - (n))))
+/* 우측 시프트 (Shift Right) */
 #define SHR(x,n)    ((x) >> (n))
 
-// Case w=64 
-#define SIGMA0(x)   (ROTR((x),28) ^ ROTR((x),34) ^ ROTR((x),39))   // Σ0
-#define SIGMA1(x)   (ROTR((x),14) ^ ROTR((x),18) ^ ROTR((x),41))   // Σ1
-#define sigma0(x)   (ROTR((x), 1) ^ ROTR((x), 8) ^ SHR((x), 7))    // σ0
-#define sigma1(x)   (ROTR((x),19) ^ ROTR((x),61) ^ SHR((x), 6))    // σ1
-#define Ch(x,y,z)   (((x)&(y)) ^ (~(x)&(z)))
-#define Maj(x,y,z)  (((x)&(y)) ^ ((x)&(z)) ^ ((y)&(z)))
+/* SHA-512 함수들 (w=64비트) */
+#define SIGMA0(x)   (ROTR((x),28) ^ ROTR((x),34) ^ ROTR((x),39))   // Σ0: 상위 비트 혼합
+#define SIGMA1(x)   (ROTR((x),14) ^ ROTR((x),18) ^ ROTR((x),41))   // Σ1: 상위 비트 혼합
+#define sigma0(x)   (ROTR((x), 1) ^ ROTR((x), 8) ^ SHR((x), 7))    // σ0: 메시지 확장용
+#define sigma1(x)   (ROTR((x),19) ^ ROTR((x),61) ^ SHR((x), 6))    // σ1: 메시지 확장용
+#define Ch(x,y,z)   (((x)&(y)) ^ (~(x)&(z)))                       // Choice 함수
+#define Maj(x,y,z)  (((x)&(y)) ^ ((x)&(z)) ^ ((y)&(z)))            // Majority 함수
 
 // 초기 IV (“SHA2-512 IV”)
 static const uint64_t H0[8] = {
@@ -47,8 +49,9 @@ static const uint64_t K[80] = {
   0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL, 0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL
 };
 
-// big-endian 로드/스토어 (SHA-512 규격)
-// 바이트 배열 p[0..7]을 big-endian으로 읽어 64비트 정수로 조립
+/* big-endian 로드/스토어 (SHA-512 규격) */
+
+/* 바이트 배열 p[0..7]을 big-endian으로 읽어 64비트 정수로 조립 */
 static inline uint64_t load_be64(const uint8_t* p) {
     return ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
         ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
@@ -56,7 +59,7 @@ static inline uint64_t load_be64(const uint8_t* p) {
         ((uint64_t)p[6] << 8) | ((uint64_t)p[7]);
 }
 
-// 64비트 정수 x를 big-endian 바이트 배열로 분해해 저장
+/* 64비트 정수 x를 big-endian 바이트 배열로 분해해 저장 */
 static inline void store_be64(uint8_t* dst, uint64_t val)
 {
     dst[0] = (uint8_t)(val >> 56);
@@ -69,7 +72,7 @@ static inline void store_be64(uint8_t* dst, uint64_t val)
     dst[7] = (uint8_t)(val >> 0);
 }
 
-// 메시지 확장 + 80-step 압축
+/* 메시지 확장 + 80-step 압축 함수: SHA-512의 핵심 변환 함수 */
 static void sha512_transform(SHA512_CTX* ctx, const uint8_t block[SHA512_BLOCK_SIZE]) {
     uint64_t W[80];
     for (int t = 0; t < 16; ++t) W[t] = load_be64(block + 8 * t);              // 입력 블록(128바이트)을 64비트 단위 W[0...15]에 로드
@@ -93,7 +96,7 @@ static void sha512_transform(SHA512_CTX* ctx, const uint8_t block[SHA512_BLOCK_S
     ctx->state[4] += e; ctx->state[5] += f; ctx->state[6] += g; ctx->state[7] += h;
 }
 
-// 초기 상태를 IV로 세팅, 총 길이/버퍼 길이 초기화
+/* SHA-512 컨텍스트 초기화: 초기 IV 값 설정 및 내부 상태 초기화 */
 int SHA512_init(SHA512_CTX* ctx) {
 
     // 입력 포인터가 NULL이면 parameter error 반환
@@ -106,14 +109,14 @@ int SHA512_init(SHA512_CTX* ctx) {
     return CRYPTO_OK;  // 정상 종료
 }
 
-// 총 비트 길이 누적 보조
+/* 총 비트 길이 누적 보조 함수: 128비트 길이를 안전하게 누적 */
 static inline void add_bits(SHA512_CTX* ctx, uint64_t bits) {
     // 128비트 누적 (하위 64비트에 더하다 overflow면 상위 64비트 + 1)
     uint64_t lo = ctx->bitlen[1] + bits;
     if (lo < ctx->bitlen[1]) ctx->bitlen[0]++; // carry 발생 시 상위 64비트 증가
     ctx->bitlen[1] = lo;
 }
-// 들어온 바이트 수를 비트 수(x8)로 변환해 총 길이에 누적
+/* SHA-512 데이터 업데이트: 들어온 바이트 데이터를 처리하고 내부 상태 업데이트 */
 int SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
 
     // ctx가 NULL이거나 data가 NULL + len>0이면 잘못된 입력
@@ -137,7 +140,7 @@ int SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
     return CRYPTO_OK;
 }
 
-// 패딩 + 마지막 변환 + 출력
+/* SHA-512 최종 처리: 패딩 추가, 마지막 변환 수행, 최종 해시값 출력 */
 int SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]) {
 
     // ctx 또는 출력버퍼가 NULL이면 parameter error
@@ -177,4 +180,29 @@ int SHA512_final(SHA512_CTX* ctx, uint8_t out[SHA512_DIGEST_SIZE]) {
 
 
     return CRYPTO_OK;
+}
+
+/* SHA-512 해시를 한 번에 계산하는 **원샷(One-shot)** 실제 구현 함수.*/
+int SHA512_hash_impl(const uint8_t* data, size_t len, uint8_t out[SHA512_DIGEST_SIZE]) {
+    SHA512_CTX ctx;
+
+    // SHA512 초기화
+    int rc = SHA512_init(&ctx);
+    if (rc != CRYPTO_OK) {
+        return rc;  // 초기화 실패 시 그대로 에러 반환
+    }
+
+    // SHA512 데이터 처리
+    rc = SHA512_update(&ctx, data, len);
+    if (rc != CRYPTO_OK) {
+        return rc;  // update 실패 시 에러 반환
+    }
+
+    // SHA512 최종 digest 계산
+    rc = SHA512_final(&ctx, out);
+    if (rc != CRYPTO_OK) {
+        return rc;  // final 실패 시 에러 반환
+    }
+
+    return CRYPTO_OK;  // 모든 과정 정상 종료
 }

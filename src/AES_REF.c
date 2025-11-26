@@ -2,7 +2,7 @@
 #include "error.h"
 #include <string.h>
 
-// S-Box (Substitution Box)
+/* S-Box (Substitution Box): AES 암호화 시 바이트 치환에 사용 */
 static const byte sbox[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -22,7 +22,7 @@ static const byte sbox[256] = {
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 };
 
-// 역 S-Box
+/* 역 S-Box (Inverse Substitution Box): AES 복호화 시 바이트 역치환에 사용 */
 static const byte inv_sbox[256] = {
     0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
     0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -42,15 +42,15 @@ static const byte inv_sbox[256] = {
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 };
 
-// Rcon (Round Constants)
+/* Rcon (Round Constants): 키 확장 시 사용되는 라운드 상수 */
 static const byte rcon[11] = {
     0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
 };
 
-// xtimes 매크로 (x * 2 in GF(2^8))
+/* xtimes 매크로: Galois Field GF(2^8)에서 x * 2 연산 (MixColumns에 사용) */
 #define xtimes(x) ((x & 0x80) ? ((x << 1) ^ 0x1b) : (x << 1))
 
-// 키 크기로부터 라운드 수 계산
+/* 키 크기로부터 라운드 수 계산: AES-128=10, AES-192=12, AES-256=14 */
 static byte get_rounds(byte key_size) {
     switch (key_size) {
     case AES_128_KEY_SIZE: return AES_128_ROUNDS;
@@ -60,7 +60,7 @@ static byte get_rounds(byte key_size) {
     }
 }
 
-// 키 확장 (바이트 단위 연산)
+/* AES 키 확장: 원본 키로부터 모든 라운드 키 생성 (바이트 단위 연산) */
 int aes_key_expansion(const byte* key, byte key_size, byte* round_keys) {
     byte rounds = get_rounds(key_size);
     if (rounds == 0) return CRYPTO_ERR_KEYLEN;
@@ -120,21 +120,21 @@ int aes_key_expansion(const byte* key, byte key_size, byte* round_keys) {
     return 0;
 }
 
-// 라운드 키 추가
+/* AddRoundKey: 상태와 라운드 키를 XOR 연산 */
 void aes_add_round_key(byte* state, const byte* round_key) {
     for (int i = 0; i < 16; i++) {
         state[i] ^= round_key[i];
     }
 }
 
-// 바이트 치환
+/* SubBytes: S-box를 사용하여 상태의 각 바이트를 치환 */
 void aes_sub_bytes(byte* state) {
     for (int i = 0; i < 16; i++) {
         state[i] = sbox[state[i]];
     }
 }
 
-// 행 이동
+/* ShiftRows: 상태의 각 행을 왼쪽으로 순환 시프트 (행 0: 0바이트, 행 1: 1바이트, 행 2: 2바이트, 행 3: 3바이트) */
 void aes_shift_rows(byte* state) {
     byte temp;
 
@@ -161,7 +161,7 @@ void aes_shift_rows(byte* state) {
     state[7] = temp;
 }
 
-// 열 혼합
+/* MixColumns: Galois Field GF(2^8)에서 각 열을 혼합 (마지막 라운드 제외) */
 void aes_mix_columns(byte* state) {
     byte temp[4] = { 0 };
 
@@ -178,14 +178,14 @@ void aes_mix_columns(byte* state) {
     }
 }
 
-// 역 바이트 치환
+/* InvSubBytes: 역 S-box를 사용하여 상태의 각 바이트를 역치환 */
 void aes_inv_sub_bytes(byte* state) {
     for (int i = 0; i < 16; i++) {
         state[i] = inv_sbox[state[i]];
     }
 }
 
-// 역 행 이동
+/* InvShiftRows: 상태의 각 행을 오른쪽으로 순환 시프트 (ShiftRows의 역연산) */
 void aes_inv_shift_rows(byte* state) {
     byte temp;
 
@@ -212,7 +212,7 @@ void aes_inv_shift_rows(byte* state) {
     state[3] = temp;
 }
 
-// 역 열 혼합
+/* InvMixColumns: Galois Field GF(2^8)에서 각 열을 역혼합 (MixColumns의 역연산) */
 void aes_inv_mix_columns(byte* state) {
     byte temp[16] = { 0 };
     byte array[4][4] = {
@@ -248,7 +248,7 @@ void aes_inv_mix_columns(byte* state) {
     }
 }
 
-// AES 암호화 블록
+/* AES 블록 암호화: 16바이트 블록을 암호화 (레퍼런스 구현) */
 int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
     const byte* key, int key_len) {
     if (!in || !out || !key) {
@@ -302,7 +302,7 @@ int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE
     return CRYPTO_OK;  // 성공
 }
 
-// AES 복호화 블록
+/* AES 블록 복호화: 16바이트 블록을 복호화 (레퍼런스 구현) */
 int AES_REF_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
     const byte* key, int key_len) {
     if (!in || !out || !key) {

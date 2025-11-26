@@ -13,7 +13,11 @@
 #define AES_128_KEY_SIZE 16   // AES-128 키 길이 (바이트)
 #define AES_192_KEY_SIZE 24  // AES-192 키 길이
 #define AES_256_KEY_SIZE 32   // AES-256 키 길이
+
+ /* AES 블록 크기 (중복 정의 방지) */
+#ifndef AES_BLOCK_SIZE
 #define AES_BLOCK_SIZE 16   // AES 블록 크기 (128비트)
+#endif
 
 #define AES_128_ROUNDS 10
 #define AES_192_ROUNDS 12

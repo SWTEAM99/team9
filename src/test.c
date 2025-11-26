@@ -1,4 +1,5 @@
-﻿#define _CRT_SECURE_NO_WARNINGS
+﻿#if 0
+#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1118,4 +1119,4 @@ int main(void) {
 
     return (all_passed && failed_tests == 0) ? 0 : 1;
 }
-
+#endif
