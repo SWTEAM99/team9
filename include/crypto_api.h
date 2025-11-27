@@ -16,6 +16,7 @@
 #include "AES_TBL_CORE.h"       // 테이블 룩업 버전 AES_TBL_CTX, 함수 선언
 #include "sha512.h" // sha2-512 해시함수 
 #include "hmac.h" // HMAC구현 
+#include "modes.h" //운용모드 구현
 
  /* =========================================================
   * 기본 타입 정의
