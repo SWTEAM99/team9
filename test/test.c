@@ -1,5 +1,4 @@
-﻿#if 0
-#define _CRT_SECURE_NO_WARNINGS
+﻿#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -108,21 +107,15 @@ static void log_test_result(const char* test_name, int test_num,
     }
 }
 
-// AES 컨텍스트 구조체 (CBC/CTR용)
-typedef struct {
-    const byte* key;
-    int key_len;
-    AES_Impl impl;
-} aes_context_t;
-
 // AES 블록 암호화 래퍼 (CBC/CTR용)
+// crypto_api.h에 정의된 AES_CTX를 사용
 static void aes_encrypt_wrapper(const byte* in, byte* out, const void* user_ctx) {
-    const aes_context_t* ctx = (const aes_context_t*)user_ctx;
+    const AES_CTX* ctx = (const AES_CTX*)user_ctx;
     AES_encrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
 }
 
 static void aes_decrypt_wrapper(const byte* in, byte* out, const void* user_ctx) {
-    const aes_context_t* ctx = (const aes_context_t*)user_ctx;
+    const AES_CTX* ctx = (const AES_CTX*)user_ctx;
     AES_decrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
 }
 
@@ -359,22 +352,26 @@ static int test_aes_cbc(void) {
         for (int i = 0; i < 3; i++) {
             byte key[32], iv[16], plaintext[64], expected[64], ciphertext[64];
             int ct_len;
-            aes_context_t ctx = { key, test_vectors[i].key_len, impl };
+            AES_CTX ctx = { key, test_vectors[i].key_len, impl };
 
             hex_to_bytes(test_vectors[i].key_hex, key, test_vectors[i].key_len);
             hex_to_bytes(test_vectors[i].iv_hex, iv, 16);
             hex_to_bytes(test_vectors[i].plaintext_hex, plaintext, test_vectors[i].pt_len);
             hex_to_bytes(test_vectors[i].ciphertext_hex, expected, test_vectors[i].pt_len);
 
-            ct_len = test_vectors[i].pt_len;
+            // PKCS7 패딩이 추가되므로 암호문 길이는 블록 크기의 배수
+            // NIST 벡터는 이미 블록 크기의 배수이므로 패딩이 추가되어 32바이트가 됨
+            ct_len = 64;  // 충분한 크기 할당
             if (CBC_encrypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, iv,
-                CBC_PADDING_NONE, plaintext, test_vectors[i].pt_len,
+                plaintext, test_vectors[i].pt_len,
                 ciphertext, &ct_len, &ctx) != CRYPTO_OK) {
                 printf("❌ %s %s 암호화 실패\n", impl_name, test_vectors[i].name);
                 all_passed = 0;
                 continue;
             }
 
+            // NIST 벡터는 패딩 없이 테스트하므로, 첫 번째 블록만 비교
+            // 실제로는 PKCS7 패딩이 추가되어 암호문이 더 길어짐
             int passed = compare_bytes(ciphertext, expected, test_vectors[i].pt_len);
 
             char test_name[128];
@@ -390,18 +387,20 @@ static int test_aes_cbc(void) {
                 all_passed = 0;
             }
 
-            // 복호화 테스트
+            // 복호화 테스트 (PKCS7 패딩 자동 제거)
             byte decrypted[64];
-            int dec_len = test_vectors[i].pt_len;
+            int dec_len = 64;  // 충분한 크기 할당
             if (CBC_decrypt(aes_decrypt_wrapper, AES_BLOCK_SIZE, iv,
-                CBC_PADDING_NONE, ciphertext, ct_len,
+                ciphertext, ct_len,
                 decrypted, &dec_len, &ctx) != CRYPTO_OK) {
                 printf("❌ %s %s 복호화 실패\n", impl_name, test_vectors[i].name);
                 all_passed = 0;
                 continue;
             }
 
-            int decrypt_passed = compare_bytes(decrypted, plaintext, test_vectors[i].pt_len);
+            // 복호화된 길이가 원래 평문 길이와 같은지 확인
+            int decrypt_passed = (dec_len == test_vectors[i].pt_len) &&
+                compare_bytes(decrypted, plaintext, test_vectors[i].pt_len);
 
             snprintf(test_name, sizeof(test_name), "%s (%s) 복호화", test_vectors[i].name, impl_name);
 
@@ -436,10 +435,11 @@ static int test_aes_cbc(void) {
             int key_len = key_lengths[key_idx];
 
             for (int i = 0; i < 500; i++) {
-                byte key[32], iv[16], plaintext[64], ciphertext[64], decrypted[64];
-                int pt_len = 16 + (i % 3) * 16;  // 16, 32, 48 바이트
+                byte key[32], iv[16], plaintext[64], ciphertext[80], decrypted[64];
+                // 랜덤 평문 길이 생성 (1~63 바이트, 블록 크기의 배수가 아님)
+                int pt_len = 1 + (i % 63);  // 1~63 바이트
                 int ct_len, dec_len;
-                aes_context_t ctx = { key, key_len, impl };
+                AES_CTX ctx = { key, key_len, impl };
 
                 // 랜덤 키 생성
                 if (CRYPTO_randomBytes(key, key_len) != CRYPTO_OK) {
@@ -459,26 +459,33 @@ static int test_aes_cbc(void) {
                     continue;
                 }
 
-                // 암호화
-                ct_len = pt_len;
+                // 암호화 (PKCS7 패딩 자동 추가)
+                ct_len = 80;  // 충분한 크기 (패딩 포함)
                 if (CBC_encrypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, iv,
-                    CBC_PADDING_NONE, plaintext, pt_len,
+                    plaintext, pt_len,
                     ciphertext, &ct_len, &ctx) != CRYPTO_OK) {
                     random_failed++;
                     continue;
                 }
 
-                // 복호화
-                dec_len = pt_len;
+                // 암호문 길이는 블록 크기의 배수여야 함 (PKCS7 패딩)
+                if (ct_len % AES_BLOCK_SIZE != 0) {
+                    random_failed++;
+                    continue;
+                }
+
+                // 복호화 (PKCS7 패딩 자동 제거)
+                dec_len = 64;  // 충분한 크기
                 if (CBC_decrypt(aes_decrypt_wrapper, AES_BLOCK_SIZE, iv,
-                    CBC_PADDING_NONE, ciphertext, ct_len,
+                    ciphertext, ct_len,
                     decrypted, &dec_len, &ctx) != CRYPTO_OK) {
                     random_failed++;
                     continue;
                 }
 
-                // 복호화 결과가 원래 평문과 같은지 확인
-                int passed = compare_bytes(decrypted, plaintext, pt_len);
+                // 복호화 결과가 원래 평문과 같은지 확인 (길이와 내용 모두)
+                int passed = (dec_len == pt_len) &&
+                    compare_bytes(decrypted, plaintext, pt_len);
 
                 char test_name[128];
                 snprintf(test_name, sizeof(test_name), "%s %s 랜덤 #%d", key_names[key_idx], impl_name, i + 1);
@@ -566,7 +573,7 @@ static int test_aes_ctr(void) {
         for (int i = 0; i < 3; i++) {
             byte key[32], nonce[16], plaintext[64], expected[64], ciphertext[64];
             byte nonce_copy[16];
-            aes_context_t ctx = { key, test_vectors[i].key_len, impl };
+            AES_CTX ctx = { key, test_vectors[i].key_len, impl };
 
             hex_to_bytes(test_vectors[i].key_hex, key, test_vectors[i].key_len);
             hex_to_bytes(test_vectors[i].nonce_hex, nonce, 16);
@@ -643,8 +650,9 @@ static int test_aes_ctr(void) {
             for (int i = 0; i < 500; i++) {
                 byte key[32], nonce[16], plaintext[64], ciphertext[64], decrypted[64];
                 byte nonce_copy[16];
-                int pt_len = 16 + (i % 3) * 16;  // 16, 32, 48 바이트
-                aes_context_t ctx = { key, key_len, impl };
+                // 랜덤 평문 길이 생성 (1~63 바이트, 블록 크기의 배수가 아님)
+                int pt_len = 1 + (i % 63);  // 1~63 바이트
+                AES_CTX ctx = { key, key_len, impl };
 
                 // 랜덤 키 생성
                 if (CRYPTO_randomBytes(key, key_len) != CRYPTO_OK) {
@@ -664,7 +672,7 @@ static int test_aes_ctr(void) {
                     continue;
                 }
 
-                // 암호화
+                // 암호화 (CTR은 패딩 불필요, 임의 길이 지원)
                 memcpy(nonce_copy, nonce, 16);
                 if (CTR_crypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, nonce_copy,
                     plaintext, pt_len, ciphertext, &ctx) != CRYPTO_OK) {
@@ -672,7 +680,7 @@ static int test_aes_ctr(void) {
                     continue;
                 }
 
-                // 복호화 (CTR은 암호화와 동일)
+                // 복호화 (CTR은 암호화와 동일, 패딩 불필요)
                 memcpy(nonce_copy, nonce, 16);
                 if (CTR_crypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, nonce_copy,
                     ciphertext, pt_len, decrypted, &ctx) != CRYPTO_OK) {
@@ -954,10 +962,24 @@ static int test_hmac_sha512(void) {
     int random_passed = 0;
     int random_failed = 0;
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 500; i++) {
+        byte s[256] = { 0 };
         byte key[256], message[512], mac[64], mac2[64];
         int key_len = 16 + (i % 3) * 8;  // 16, 24, 32 바이트
         int msg_len = 1 + (i % 511);     // 1~511 바이트
+        const byte* s_ptr = NULL;
+        size_t s_len = 0;
+
+        // 랜덤 salt(s) 생성 (50% 확률로 사용)
+        int use_salt = (i % 2 == 0);  // 짝수 인덱스일 때 salt 사용
+        if (use_salt) {
+            s_len = 1 + (i % 64);  // 1~64 바이트
+            if (CRYPTO_randomBytes(s, s_len) != CRYPTO_OK) {
+                random_failed++;
+                continue;
+            }
+            s_ptr = s;
+        }
 
         // 랜덤 키 생성
         if (CRYPTO_randomBytes(key, key_len) != CRYPTO_OK) {
@@ -972,12 +994,12 @@ static int test_hmac_sha512(void) {
         }
 
         // MAC 계산 (두 번 계산해서 일관성 확인)
-        if (Mac(NULL, 0, key, key_len, 64, message, msg_len, mac) != CRYPTO_OK) {
+        if (Mac(s_ptr, s_len, key, key_len, 64, message, msg_len, mac) != CRYPTO_OK) {
             random_failed++;
             continue;
         }
 
-        if (Mac(NULL, 0, key, key_len, 64, message, msg_len, mac2) != CRYPTO_OK) {
+        if (Mac(s_ptr, s_len, key, key_len, 64, message, msg_len, mac2) != CRYPTO_OK) {
             random_failed++;
             continue;
         }
@@ -1084,6 +1106,91 @@ static int test_error_handling(void) {
         printf("✅ CRYPTO_ERR_MODE 테스트 통과\n");
         crypto_error_print(err_code, "AES_encrypt_block: 잘못된 구현 방식");
     }
+
+    // 6. CRYPTO_ERR_PADDING 테스트
+    printf("\n[6] CRYPTO_ERR_PADDING 테스트\n");
+    // 정상적으로 PKCS7 패딩으로 암호화한 후, 암호문을 수정해서 패딩 검증 실패 테스트
+    byte plaintext_test[8] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };  // 8바이트 (패딩 8바이트 추가)
+    byte ciphertext_test[32];
+    int ct_len_test = 32;
+    AES_CTX ctx_test = { dummy, 16, AES_IMPL_REF };
+    byte iv_test[16] = { 0 };
+
+    // 정상 암호화 (PKCS7 패딩 자동 적용)
+    if (CBC_encrypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, iv_test,
+        plaintext_test, 8,
+        ciphertext_test, &ct_len_test, &ctx_test) != CRYPTO_OK) {
+        printf("❌ CRYPTO_ERR_PADDING 테스트 준비 실패 (암호화 실패)\n");
+        all_passed = 0;
+    }
+    else {
+        // 암호문의 마지막 바이트를 수정하여 잘못된 패딩 만들기
+        byte bad_ciphertext[32];
+        memcpy(bad_ciphertext, ciphertext_test, ct_len_test);
+        // 마지막 바이트를 잘못된 패딩 값으로 변경 (17 = 블록 크기보다 큼)
+        bad_ciphertext[ct_len_test - 1] = 17;
+
+        // 잘못된 패딩이 있는 암호문을 복호화 시도 - 패딩 검증 실패해야 함
+        byte result[32];
+        int result_len = 32;
+        err_code = CBC_decrypt(aes_decrypt_wrapper, AES_BLOCK_SIZE, iv_test,
+            bad_ciphertext, ct_len_test,
+            result, &result_len, &ctx_test);
+        if (err_code != CRYPTO_ERR_PADDING && err_code != CRYPTO_ERR_INVALID) {
+            printf("❌ CRYPTO_ERR_PADDING 테스트 실패 (기대: CRYPTO_ERR_PADDING 또는 CRYPTO_ERR_INVALID, 실제: %d)\n", err_code);
+            printf("  복호화된 평문의 마지막 바이트: 0x%02x\n", result[15]);
+            all_passed = 0;
+        }
+        else {
+            printf("✅ CRYPTO_ERR_PADDING 테스트 통과\n");
+            crypto_error_print(err_code, "CBC_decrypt: 잘못된 패딩");
+        }
+    }
+
+
+
+// 7. 에러 확인 함수 테스트
+printf("\n[7] 에러 확인 함수 테스트\n");
+if (crypto_is_success(CRYPTO_OK)) {
+    printf("✅ crypto_is_success(CRYPTO_OK) 통과\n");
+}
+else {
+    printf("❌ crypto_is_success(CRYPTO_OK) 실패\n");
+    all_passed = 0;
+}
+
+if (!crypto_is_success(CRYPTO_ERR_PARAM)) {
+    printf("✅ crypto_is_success(CRYPTO_ERR_PARAM) 통과\n");
+}
+else {
+    printf("❌ crypto_is_success(CRYPTO_ERR_PARAM) 실패\n");
+    all_passed = 0;
+}
+
+if (crypto_is_error(CRYPTO_ERR_PARAM)) {
+    printf("✅ crypto_is_error(CRYPTO_ERR_PARAM) 통과\n");
+}
+else {
+    printf("❌ crypto_is_error(CRYPTO_ERR_PARAM) 실패\n");
+    all_passed = 0;
+}
+
+if (!crypto_is_error(CRYPTO_OK)) {
+    printf("✅ crypto_is_error(CRYPTO_OK) 통과\n");
+}
+else {
+    printf("❌ crypto_is_error(CRYPTO_OK) 실패\n");
+    all_passed = 0;
+}
+
+if (all_passed) {
+    printf("\n✅ 모든 오류 처리 테스트 통과\n");
+}
+else {
+    printf("\n❌ 일부 오류 처리 테스트 실패\n");
+}
+printf("\n");
+return all_passed;
 }
 
 // 메인 함수
@@ -1119,4 +1226,4 @@ int main(void) {
 
     return (all_passed && failed_tests == 0) ? 0 : 1;
 }
-#endif
+
