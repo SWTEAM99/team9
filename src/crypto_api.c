@@ -1,4 +1,5 @@
 #include "crypto_api.h"   // AES_Impl enum, 상수, 오류 코드 정의
+#include "utils.h"        // UTIL_* 함수들
 #include <string.h>       // memcpy 등 기본 유틸 사용
 #include <stdlib.h>
 
@@ -342,4 +343,24 @@ int CTR_crypt(
     const void* user_ctx
 ) {
     return MODES_CTR_crypt(encrypt_block, block_size, nonce_ctr, in, len, out, user_ctx);
+}
+
+/* ================================================================
+ * 유틸리티 함수 별칭 (CRYPTO_* 이름으로 utils.c의 UTIL_* 함수 호출)
+ * ================================================================ */
+
+void CRYPTO_printHex(const byte* data, int len) {
+    UTIL_printHex(data, len);
+}
+
+int CRYPTO_isEqual(const byte* a, const byte* b, int len) {
+    return UTIL_isEqual(a, b, len);
+}
+
+int CRYPTO_readFile(const char* filename, byte** data, size_t* len) {
+    return UTIL_readFile(filename, data, len);
+}
+
+int CRYPTO_writeFile(const char* filename, const byte* data, size_t len) {
+    return UTIL_writeFile(filename, data, len);
 }

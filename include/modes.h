@@ -41,7 +41,7 @@ int IV_generate(byte iv[AES_BLOCK_SIZE]);
  /**
   * @brief 범용 CBC 암호화 (항상 PKCS7 패딩 사용)
   */
-int CBC_encrypt(
+int MODES_CBC_encrypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],
@@ -53,7 +53,7 @@ int CBC_encrypt(
 /**
  * @brief 범용 CBC 복호화 (항상 PKCS7 패딩 제거)
  */
-int CBC_decrypt(
+int MODES_CBC_decrypt(
     void (*decrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     const byte iv[],
@@ -70,7 +70,7 @@ int CBC_decrypt(
  /**
   * @brief 범용 CTR 암/복호화 (AES 또는 다른 블록 암호 모두 지원)
   */
-int CTR_crypt(
+int MODES_CTR_crypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
     byte* nonce_ctr,

@@ -150,6 +150,11 @@ int HMAC_Mac(const byte* s, size_t s_len, const byte* k, size_t k_len,
         return CRYPTO_ERR_PARAM;
     }
 
+    // s가 NULL이면 s_len을 0으로 설정 (일관성 유지)
+    if (s == NULL) {
+        s_len = 0;
+    }
+
     byte k0[SHA512_BLOCK_SIZE];
     byte k1[SHA512_BLOCK_SIZE];
     byte hash_output[SHA512_DIGEST_SIZE];
@@ -223,9 +228,14 @@ int HMAC_Vrfy(const byte* s, size_t s_len,
     const byte* mac_tag)
 {
     // 입력 파라미터 검증
-    if (!s || !k || !msg || !mac_tag ||
+    if (!k || !msg || !mac_tag ||
         tag_len <= 0 || tag_len > SHA512_DIGEST_SIZE) {
         return CRYPTO_ERR_PARAM;
+    }
+
+    // s가 NULL이면 s_len을 0으로 설정 (일관성 유지)
+    if (s == NULL) {
+        s_len = 0;
     }
 
     byte computed_tag[SHA512_DIGEST_SIZE];
