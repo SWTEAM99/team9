@@ -161,6 +161,12 @@
     <ClCompile Include="src\sha512.c" />
     <ClCompile Include="src\T-table.c" />
     <ClCompile Include="src\utils.c" />
+    <ClCompile Include="test\test.ignore">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NO</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NO</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NO</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NO</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AES_REF.h" />

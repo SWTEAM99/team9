@@ -15,9 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\T-table.c">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
     <ClCompile Include="src\utils.c">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -43,6 +40,12 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="app\app.c">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="src\T-table.c">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="test\test.ignore">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
