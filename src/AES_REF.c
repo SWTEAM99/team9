@@ -248,27 +248,43 @@ void aes_inv_mix_columns(byte* state) {
     }
 }
 
-/* AES 블록 암호화: 16바이트 블록을 암호화 (레퍼런스 구현) */
-int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
-    const byte* key, int key_len) {
-    if (!in || !out || !key) {
-        return CRYPTO_ERR_PARAM;  // 잘못된 매개변수
-    }
+/* =========================================================
+ * 컨텍스트 기반 함수들
+ * ========================================================= */
 
-    // 키 크기 검증
+ /**
+  * @brief AES Reference 컨텍스트 초기화 (키 확장 수행)
+  */
+int AES_REF_init(AES_REF_CTX* ctx, const byte* key, int key_len) {
+    if (!ctx || !key) {
+        return CRYPTO_ERR_PARAM;
+    }
     if (key_len != AES_128_KEY_SIZE && key_len != AES_192_KEY_SIZE && key_len != AES_256_KEY_SIZE) {
         return CRYPTO_ERR_KEYLEN;
     }
 
     byte rounds = get_rounds(key_len);
-    if (rounds == 0) return CRYPTO_ERR_KEYLEN;
+    if (rounds == 0) {
+        return CRYPTO_ERR_KEYLEN;
+    }
 
-    // 라운드 키 배열 할당 (바이트 단위)
-    byte round_keys[240];  // 15 * 16 = 240 바이트
+    ctx->rounds = rounds;
+    ctx->key_len = key_len;
 
-    // 키 확장
-    if (aes_key_expansion(key, key_len, round_keys) != 0) {
+    // 키 확장 수행
+    if (aes_key_expansion(key, key_len, ctx->round_keys) != 0) {
         return CRYPTO_ERR_INTERNAL;
+    }
+
+    return CRYPTO_OK;
+}
+
+/**
+ * @brief AES 암호화 (컨텍스트 사용)
+ */
+int aes_ref_encrypt_core(const AES_REF_CTX* ctx, const byte in[16], byte out[16]) {
+    if (!ctx || !in || !out) {
+        return CRYPTO_ERR_PARAM;
     }
 
     byte state[16];
@@ -279,53 +295,38 @@ int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE
     }
 
     // 초기 라운드 키 추가
-    aes_add_round_key(state, &round_keys[0]);
+    aes_add_round_key(state, &ctx->round_keys[0]);
 
     // 라운드 수행
-    for (int round = 1; round < rounds; round++) {
+    for (int round = 1; round < ctx->rounds; round++) {
         aes_sub_bytes(state);
         aes_shift_rows(state);
         aes_mix_columns(state);
-        aes_add_round_key(state, &round_keys[round * 16]);
+        aes_add_round_key(state, &ctx->round_keys[round * 16]);
     }
 
     // 마지막 라운드 (MixColumns 제외)
     aes_sub_bytes(state);
     aes_shift_rows(state);
-    aes_add_round_key(state, &round_keys[rounds * 16]);
+    aes_add_round_key(state, &ctx->round_keys[ctx->rounds * 16]);
 
     // 결과를 출력으로 복사
     for (int i = 0; i < 16; i++) {
         out[i] = state[i];
     }
 
-    return CRYPTO_OK;  // 성공
+    return CRYPTO_OK;
 }
 
-/* AES 블록 복호화: 16바이트 블록을 복호화 (레퍼런스 구현) */
-int AES_REF_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
-    const byte* key, int key_len) {
-    if (!in || !out || !key) {
-        return CRYPTO_ERR_PARAM;  // 잘못된 매개변수
+/**
+ * @brief AES 복호화 (컨텍스트 사용)
+ */
+int aes_ref_decrypt_core(const AES_REF_CTX* ctx, const byte in[16], byte out[16]) {
+    if (!ctx || !in || !out) {
+        return CRYPTO_ERR_PARAM;
     }
 
-    // 키 크기 검증
-    if (key_len != AES_128_KEY_SIZE && key_len != AES_192_KEY_SIZE && key_len != AES_256_KEY_SIZE) {
-        return CRYPTO_ERR_KEYLEN;
-    }
-
-    byte rounds = get_rounds(key_len);
-    if (rounds == 0) return CRYPTO_ERR_KEYLEN;
-
-    // 라운드 키 배열 할당 (바이트 단위)
-    byte round_keys[240];  // 60 * 4 = 240 바이트
-
-    // 키 확장
-    if (aes_key_expansion(key, key_len, round_keys) != 0) {
-        return CRYPTO_ERR_INTERNAL;
-    }
-
-    byte state[16] = { 0 };
+    byte state[16];
 
     // 입력을 state 배열로 복사
     for (int i = 0; i < 16; i++) {
@@ -333,26 +334,26 @@ int AES_REF_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE
     }
 
     // 초기 라운드 키 추가
-    aes_add_round_key(state, &round_keys[rounds * 16]);
+    aes_add_round_key(state, &ctx->round_keys[ctx->rounds * 16]);
 
     // 라운드 수행
-    for (int round = rounds - 1; round > 0; round--) {
+    for (int round = ctx->rounds - 1; round > 0; round--) {
         aes_inv_shift_rows(state);
         aes_inv_sub_bytes(state);
-        aes_add_round_key(state, &round_keys[round * 16]);
+        aes_add_round_key(state, &ctx->round_keys[round * 16]);
         aes_inv_mix_columns(state);
     }
 
     // 마지막 라운드 (InvMixColumns 제외)
     aes_inv_shift_rows(state);
     aes_inv_sub_bytes(state);
-    aes_add_round_key(state, &round_keys[0]);
+    aes_add_round_key(state, &ctx->round_keys[0]);
 
     // 결과를 출력으로 복사
     for (int i = 0; i < 16; i++) {
         out[i] = state[i];
     }
 
-    return CRYPTO_OK;  // 성공
+    return CRYPTO_OK;
 }
 

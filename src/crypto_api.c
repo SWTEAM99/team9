@@ -1,5 +1,4 @@
 #include "crypto_api.h"   // AES_Impl enum, 상수, 오류 코드 정의
-#include "utils.h"        // UTIL_* 함수들
 #include <string.h>       // memcpy 등 기본 유틸 사용
 #include <stdlib.h>
 
@@ -18,43 +17,71 @@ typedef int (*aes_decrypt_func_t)(const byte in[AES_BLOCK_SIZE],
     const byte* key, int key_len);
 
 /* ================================================================
+ * Reference 버전 래퍼 함수들
+ * ================================================================ */
+
+ /* Reference 기반 AES 암호화 래퍼: 직접 호출 시 매번 초기화 */
+static int aes_ref_encrypt_wrapper(const byte in[AES_BLOCK_SIZE],
+    byte out[AES_BLOCK_SIZE],
+    const byte* key, int key_len) {
+    // 직접 호출되는 경우를 위한 구현 (CBC/CTR 모드는 app.c에서 컨텍스트 재사용)
+    AES_REF_CTX ctx;
+    if (AES_REF_init(&ctx, key, key_len) != CRYPTO_OK) {
+        return CRYPTO_ERR_INTERNAL;
+    }
+    return aes_ref_encrypt_core(&ctx, in, out);
+}
+
+/* Reference 기반 AES 복호화 래퍼: 직접 호출 시 매번 초기화 */
+static int aes_ref_decrypt_wrapper(const byte in[AES_BLOCK_SIZE],
+    byte out[AES_BLOCK_SIZE],
+    const byte* key, int key_len) {
+    // 직접 호출되는 경우를 위한 구현 (CBC/CTR 모드는 app.c에서 컨텍스트 재사용)
+    AES_REF_CTX ctx;
+    if (AES_REF_init(&ctx, key, key_len) != CRYPTO_OK) {
+        return CRYPTO_ERR_INTERNAL;
+    }
+    return aes_ref_decrypt_core(&ctx, in, out);
+}
+
+/* ================================================================
  * T-table 버전 래퍼 함수들
  * ================================================================ */
 
- /* T-table 기반 AES 암호화 래퍼: AES_TBL_CTX 초기화 후 암호화 수행 */
+ /* T-table 기반 AES 암호화 래퍼: 직접 호출 시 매번 초기화 */
 static int aes_tbl_encrypt_wrapper(const byte in[AES_BLOCK_SIZE],
     byte out[AES_BLOCK_SIZE],
     const byte* key, int key_len) {
+    // 직접 호출되는 경우를 위한 구현 (CBC/CTR 모드는 app.c에서 컨텍스트 재사용)
     AES_TBL_CTX ctx;
-    if (AES_TBL_init(&ctx, key, key_len) != 0) {
+    if (AES_TBL_init(&ctx, key, key_len) != CRYPTO_OK) {
         return CRYPTO_ERR_INTERNAL;
     }
-    aes_encrypt_core(&ctx, in, out);
-    return CRYPTO_OK;
+    return aes_encrypt_core(&ctx, in, out);
 }
 
-/* T-table 기반 AES 복호화 래퍼: AES_TBL_CTX 초기화 후 복호화 수행 */
+/* T-table 기반 AES 복호화 래퍼: 직접 호출 시 매번 초기화 */
 static int aes_tbl_decrypt_wrapper(const byte in[AES_BLOCK_SIZE],
     byte out[AES_BLOCK_SIZE],
     const byte* key, int key_len) {
+    // 직접 호출되는 경우를 위한 구현 (CBC/CTR 모드는 app.c에서 컨텍스트 재사용)
     AES_TBL_CTX ctx;
-    if (AES_TBL_init(&ctx, key, key_len) != 0) {
+    if (AES_TBL_init(&ctx, key, key_len) != CRYPTO_OK) {
         return CRYPTO_ERR_INTERNAL;
     }
-    aes_decrypt_core(&ctx, in, out);
-    return CRYPTO_OK;
+    return aes_decrypt_core(&ctx, in, out);
 }
 
 /* ================================================================
  * 함수 포인터 테이블: 구현 방식에 따라 적절한 함수를 선택
  * ================================================================ */
 static const aes_encrypt_func_t encrypt_funcs[] = {
-    [AES_IMPL_REF] = AES_REF_encrypt_block,
+    [AES_IMPL_REF] = aes_ref_encrypt_wrapper,
     [AES_IMPL_TBL] = aes_tbl_encrypt_wrapper
 };
 
 static const aes_decrypt_func_t decrypt_funcs[] = {
-    [AES_IMPL_REF] = AES_REF_decrypt_block,
+    [AES_IMPL_REF] = aes_ref_decrypt_wrapper,
     [AES_IMPL_TBL] = aes_tbl_decrypt_wrapper
 };
 
@@ -344,6 +371,7 @@ int CTR_crypt(
 ) {
     return MODES_CTR_crypt(encrypt_block, block_size, nonce_ctr, in, len, out, user_ctx);
 }
+
 
 /* ================================================================
  * 유틸리티 함수 별칭 (CRYPTO_* 이름으로 utils.c의 UTIL_* 함수 호출)

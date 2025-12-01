@@ -70,7 +70,17 @@ static void aes_encrypt_block_cb_with_progress(const byte* in, byte* out, const 
     const aes_ctx_with_progress_t* ctx_prog = (const aes_ctx_with_progress_t*)user_ctx;
     const AES_CTX* ctx = &ctx_prog->aes_ctx;
 
-    AES_encrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    // 초기화된 컨텍스트를 사용하여 암호화 (키 확장은 이미 완료됨)
+    if (ctx->impl == AES_IMPL_REF && ctx->ref_ctx_initialized) {
+        aes_ref_encrypt_core(&ctx->ref_ctx, in, out);
+    }
+    else if (ctx->impl == AES_IMPL_TBL && ctx->tbl_ctx_initialized) {
+        aes_encrypt_core(&ctx->tbl_ctx, in, out);
+    }
+    else {
+        // 초기화되지 않은 경우 기존 방식 (직접 호출)
+        AES_encrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    }
 
     // 진행률 업데이트 (일정 블록 수마다만 업데이트하여 성능 개선)
     if (ctx_prog->prog) {
@@ -91,7 +101,17 @@ static void aes_decrypt_block_cb_with_progress(const byte* in, byte* out, const 
     const aes_ctx_with_progress_t* ctx_prog = (const aes_ctx_with_progress_t*)user_ctx;
     const AES_CTX* ctx = &ctx_prog->aes_ctx;
 
-    AES_decrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    // 초기화된 컨텍스트를 사용하여 복호화 (키 확장은 이미 완료됨)
+    if (ctx->impl == AES_IMPL_REF && ctx->ref_ctx_initialized) {
+        aes_ref_decrypt_core(&ctx->ref_ctx, in, out);
+    }
+    else if (ctx->impl == AES_IMPL_TBL && ctx->tbl_ctx_initialized) {
+        aes_decrypt_core(&ctx->tbl_ctx, in, out);
+    }
+    else {
+        // 초기화되지 않은 경우 기존 방식 (직접 호출)
+        AES_decrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    }
 
     // 진행률 업데이트 (일정 블록 수마다만 업데이트하여 성능 개선)
     if (ctx_prog->prog) {
@@ -209,7 +229,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
     size_t plaintext_len = 0;
     int ret = CRYPTO_readFile(input_file, &plaintext, &plaintext_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -219,7 +239,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
     byte iv[AES_BLOCK_SIZE];
     if (IV_generate(iv) != CRYPTO_OK) {
         stop_progress();
-        printf("[오류] IV 생성 실패\n");
+        crypto_error_print(CRYPTO_ERR_RANDOM, "IV 생성 실패");
         free(plaintext);
         return CRYPTO_ERR_INTERNAL;
     }
@@ -229,7 +249,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
     byte* ciphertext = (byte*)malloc(AES_BLOCK_SIZE + max_cipher_len);
     if (!ciphertext) {
         stop_progress();
-        printf("[오류] 메모리 할당 실패\n");
+        crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
         free(plaintext);
         return CRYPTO_ERR_MEMORY;
     }
@@ -247,12 +267,34 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
     prog.block_counter = 0;
 
     // AES 컨텍스트와 진행률 정보를 함께 묶기
-    aes_ctx_with_progress_t ctx_prog;
+    aes_ctx_with_progress_t ctx_prog = { 0 };
     ctx_prog.aes_ctx.key = key;
     ctx_prog.aes_ctx.key_len = key_len;
     ctx_prog.aes_ctx.impl = aes_impl;
     ctx_prog.prog = &prog;
     ctx_prog.block_size = AES_BLOCK_SIZE;
+
+    // 키 확장 수행 (한 번만)
+    if (aes_impl == AES_IMPL_REF) {
+        if (AES_REF_init(&ctx_prog.aes_ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+            stop_progress();
+            crypto_error_print(CRYPTO_ERR_INTERNAL, "AES Reference 컨텍스트 초기화 실패");
+            free(plaintext);
+            free(ciphertext);
+            return CRYPTO_ERR_INTERNAL;
+        }
+        ctx_prog.aes_ctx.ref_ctx_initialized = 1;
+    }
+    else if (aes_impl == AES_IMPL_TBL) {
+        if (AES_TBL_init(&ctx_prog.aes_ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+            stop_progress();
+            crypto_error_print(CRYPTO_ERR_INTERNAL, "AES T-table 컨텍스트 초기화 실패");
+            free(plaintext);
+            free(ciphertext);
+            return CRYPTO_ERR_INTERNAL;
+        }
+        ctx_prog.aes_ctx.tbl_ctx_initialized = 1;
+    }
 
     printf("암호화 처리 중...\n");
 
@@ -270,7 +312,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
 
     if (ret != CRYPTO_OK) {
         stop_progress();
-        printf("[오류] 암호화 실패: %d\n", ret);
+        crypto_error_print(ret, "CBC 암호화 실패");
         free(ciphertext);
         return ret;
     }
@@ -285,7 +327,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
         ret = Mac(hmac_salt, hmac_salt_len, hmac_key, hmac_key_len, hmac_tag_len,
             ciphertext, total_len, mac_tag);
         if (ret != CRYPTO_OK) {
-            printf("[오류] HMAC 생성 실패\n");
+            crypto_error_print(ret, "HMAC 생성 실패");
             free(ciphertext);
             return ret;
         }
@@ -293,7 +335,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
         // 출력 버퍼: 암호문 + HMAC
         final_output = (byte*)malloc(total_len + hmac_tag_len);
         if (!final_output) {
-            printf("[오류] 메모리 할당 실패\n");
+            crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
             free(ciphertext);
             return CRYPTO_ERR_MEMORY;
         }
@@ -309,7 +351,7 @@ static int encrypt_file_cbc(const char* input_file, const char* output_file,
     free(final_output);
 
     if (ret != CRYPTO_OK) {
-        printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+        crypto_error_print(CRYPTO_ERR_IO, output_file);
         return ret;
     }
 
@@ -357,7 +399,7 @@ static int decrypt_file_cbc(const char* input_file, const char* output_file,
     size_t encrypted_len = 0;
     int ret = CRYPTO_readFile(input_file, &encrypted_data, &encrypted_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -416,7 +458,7 @@ static int decrypt_file_cbc(const char* input_file, const char* output_file,
     byte* plaintext = (byte*)malloc(cipher_len);
     if (!plaintext) {
         stop_progress();
-        printf("[오류] 메모리 할당 실패\n");
+        crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
         free(encrypted_data);
         return CRYPTO_ERR_MEMORY;
     }
@@ -438,6 +480,28 @@ static int decrypt_file_cbc(const char* input_file, const char* output_file,
     ctx_prog.prog = &prog;
     ctx_prog.block_size = AES_BLOCK_SIZE;
 
+    // 키 확장 수행 (한 번만)
+    if (aes_impl == AES_IMPL_REF) {
+        if (AES_REF_init(&ctx_prog.aes_ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+            stop_progress();
+            crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+            free(encrypted_data);
+            free(plaintext);
+            return CRYPTO_ERR_INTERNAL;
+        }
+        ctx_prog.aes_ctx.ref_ctx_initialized = 1;
+    }
+    else if (aes_impl == AES_IMPL_TBL) {
+        if (AES_TBL_init(&ctx_prog.aes_ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+            stop_progress();
+            crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+            free(encrypted_data);
+            free(plaintext);
+            return CRYPTO_ERR_INTERNAL;
+        }
+        ctx_prog.aes_ctx.tbl_ctx_initialized = 1;
+    }
+
     printf("복호화 처리 중...\n");
 
     int plaintext_len = 0;
@@ -452,7 +516,7 @@ static int decrypt_file_cbc(const char* input_file, const char* output_file,
 
     if (ret != CRYPTO_OK) {
         stop_progress();
-        printf("[오류] 복호화 실패: %d\n", ret);
+        crypto_error_print(ret, "CBC 복호화 실패");
         free(encrypted_data);
         free(plaintext);
         return ret;
@@ -465,7 +529,7 @@ static int decrypt_file_cbc(const char* input_file, const char* output_file,
     free(plaintext);
 
     if (ret != CRYPTO_OK) {
-        printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+        crypto_error_print(CRYPTO_ERR_IO, output_file);
         return ret;
     }
 
@@ -508,7 +572,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
     size_t input_len = 0;
     int ret = CRYPTO_readFile(input_file, &input_data, &input_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -520,7 +584,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         // 암호화: Nonce 생성
         byte nonce_ctr[AES_BLOCK_SIZE];
         if (IV_generate(nonce_ctr) != CRYPTO_OK) {
-            printf("[오류] Nonce 생성 실패\n");
+            crypto_error_print(CRYPTO_ERR_RANDOM, "Nonce 생성 실패");
             free(input_data);
             return CRYPTO_ERR_INTERNAL;
         }
@@ -528,7 +592,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         // 출력 버퍼 준비 (Nonce + 암호문)
         output_data = (byte*)malloc(AES_BLOCK_SIZE + input_len);
         if (!output_data) {
-            printf("[오류] 메모리 할당 실패\n");
+            crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
             free(input_data);
             return CRYPTO_ERR_MEMORY;
         }
@@ -555,6 +619,26 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         ctx_prog_enc.prog = &prog_enc;
         ctx_prog_enc.block_size = AES_BLOCK_SIZE;
 
+        // 키 확장 수행 (한 번만)
+        if (aes_impl == AES_IMPL_REF) {
+            if (AES_REF_init(&ctx_prog_enc.aes_ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+                crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+                free(input_data);
+                free(output_data);
+                return CRYPTO_ERR_INTERNAL;
+            }
+            ctx_prog_enc.aes_ctx.ref_ctx_initialized = 1;
+        }
+        else if (aes_impl == AES_IMPL_TBL) {
+            if (AES_TBL_init(&ctx_prog_enc.aes_ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+                crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+                free(input_data);
+                free(output_data);
+                return CRYPTO_ERR_INTERNAL;
+            }
+            ctx_prog_enc.aes_ctx.tbl_ctx_initialized = 1;
+        }
+
         printf("CTR 암호화 처리 중...\n");
 
         ret = MODES_CTR_crypt(
@@ -567,7 +651,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         );
 
         if (ret != CRYPTO_OK) {
-            printf("[오류] CTR 암호화 실패: %d\n", ret);
+            crypto_error_print(ret, "CTR 암호화 실패");
             free(input_data);
             free(output_data);
             return ret;
@@ -589,7 +673,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
             ret = Mac(hmac_salt, hmac_salt_len, hmac_key, hmac_key_len, hmac_tag_len,
                 output_data, total_len, mac_tag);
             if (ret != CRYPTO_OK) {
-                printf("[오류] HMAC 생성 실패\n");
+                crypto_error_print(ret, "HMAC 생성 실패");
                 free(output_data);
                 free(input_data);
                 return ret;
@@ -598,7 +682,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
             // 출력 버퍼: 암호문 + HMAC
             final_output = (byte*)malloc(total_len + hmac_tag_len);
             if (!final_output) {
-                printf("[오류] 메모리 할당 실패\n");
+                crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
                 free(output_data);
                 free(input_data);
                 return CRYPTO_ERR_MEMORY;
@@ -615,7 +699,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         free(final_output);
 
         if (ret != CRYPTO_OK) {
-            printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+            crypto_error_print(CRYPTO_ERR_IO, output_file);
             free(input_data);
             return ret;
         }
@@ -660,7 +744,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
             ret = Vrfy(hmac_salt, hmac_salt_len, hmac_key, hmac_key_len, hmac_tag_len,
                 input_data, verify_data_len, stored_mac);
             if (ret != CRYPTO_OK) {
-                printf("[오류] HMAC 검증 실패! (오류 코드: %d)\n", ret);
+                crypto_error_print(ret, "HMAC 검증 실패");
                 printf("  - 파일이 변조되었거나 키가 잘못되었습니다.\n");
                 printf("  - 암호화 시 사용한 HMAC 키와 동일한 키를 사용했는지 확인하세요.\n");
                 free(input_data);
@@ -687,7 +771,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         // 복호화 버퍼 준비
         output_data = (byte*)malloc(actual_cipher_len);
         if (!output_data) {
-            printf("[오류] 메모리 할당 실패\n");
+            crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
             free(input_data);
             return CRYPTO_ERR_MEMORY;
         }
@@ -704,12 +788,32 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         prog_dec.operation = "CTR 복호화";
 
         // AES 컨텍스트와 진행률 정보를 함께 묶기
-        aes_ctx_with_progress_t ctx_prog_dec;
+        aes_ctx_with_progress_t ctx_prog_dec = { 0 };
         ctx_prog_dec.aes_ctx.key = key;
         ctx_prog_dec.aes_ctx.key_len = key_len;
         ctx_prog_dec.aes_ctx.impl = aes_impl;
         ctx_prog_dec.prog = &prog_dec;
         ctx_prog_dec.block_size = AES_BLOCK_SIZE;
+
+        // 키 확장 수행 (한 번만)
+        if (aes_impl == AES_IMPL_REF) {
+            if (AES_REF_init(&ctx_prog_dec.aes_ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+                crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+                free(input_data);
+                free(output_data);
+                return CRYPTO_ERR_INTERNAL;
+            }
+            ctx_prog_dec.aes_ctx.ref_ctx_initialized = 1;
+        }
+        else if (aes_impl == AES_IMPL_TBL) {
+            if (AES_TBL_init(&ctx_prog_dec.aes_ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+                crypto_error_print(CRYPTO_ERR_INTERNAL, "AES 컨텍스트 초기화 실패");
+                free(input_data);
+                free(output_data);
+                return CRYPTO_ERR_INTERNAL;
+            }
+            ctx_prog_dec.aes_ctx.tbl_ctx_initialized = 1;
+        }
 
         printf("CTR 복호화 처리 중...\n");
 
@@ -723,7 +827,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         );
 
         if (ret != CRYPTO_OK) {
-            printf("[오류] CTR 복호화 실패: %d\n", ret);
+            crypto_error_print(ret, "CTR 복호화 실패");
             free(input_data);
             free(output_data);
             return ret;
@@ -742,7 +846,7 @@ static int crypt_file_ctr(const char* input_file, const char* output_file,
         free(output_data);
 
         if (ret != CRYPTO_OK) {
-            printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+            crypto_error_print(CRYPTO_ERR_IO, output_file);
             return ret;
         }
 
@@ -790,7 +894,7 @@ static int hash_file_sha512(const char* input_file, const char* output_file) {
     size_t file_len = 0;
     int ret = CRYPTO_readFile(input_file, &file_data, &file_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -810,7 +914,7 @@ static int hash_file_sha512(const char* input_file, const char* output_file) {
     // 해시 값 저장
     ret = CRYPTO_writeFile(output_file, hash, SHA512_DIGEST_SIZE);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+        crypto_error_print(CRYPTO_ERR_IO, output_file);
         return ret;
     }
 
@@ -843,7 +947,7 @@ static int verify_hash_sha512(const char* input_file, const char* hash_file) {
     size_t file_len = 0;
     int ret = CRYPTO_readFile(input_file, &file_data, &file_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -955,7 +1059,7 @@ static int generate_hmac(const char* input_file, const char* output_file,
     size_t file_len = 0;
     int ret = CRYPTO_readFile(input_file, &file_data, &file_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -1010,7 +1114,7 @@ static int generate_hmac(const char* input_file, const char* output_file,
     printf("MAC 태그 저장 중...\n");
     ret = CRYPTO_writeFile(output_file, mac_tag, tag_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 출력 파일 쓰기 실패: %s\n", output_file);
+        crypto_error_print(CRYPTO_ERR_IO, output_file);
         return ret;
     }
 
@@ -1077,7 +1181,7 @@ static int verify_hmac(const char* input_file, const char* mac_file,
     size_t file_len = 0;
     int ret = CRYPTO_readFile(input_file, &file_data, &file_len);
     if (ret != CRYPTO_OK) {
-        printf("[오류] 입력 파일 읽기 실패: %s\n", input_file);
+        crypto_error_print(ret, input_file);
         return ret;
     }
 
@@ -1324,7 +1428,7 @@ int main(int argc, char* argv[]) {
                 // 랜덤 키 생성
                 byte* key = (byte*)malloc(aes_key_len);
                 if (!key) {
-                    printf("[오류] 메모리 할당 실패\n");
+                    crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
                     printf("\n");
                     continue;
                 }
@@ -1386,7 +1490,7 @@ int main(int argc, char* argv[]) {
                 byte* salt = (byte*)malloc(key_byte_len);
                 byte* key = (byte*)malloc(key_byte_len);
                 if (!salt || !key) {
-                    printf("[오류] 메모리 할당 실패\n");
+                    crypto_error_print(CRYPTO_ERR_MEMORY, "메모리 할당 실패");
                     if (salt) free(salt);
                     if (key) free(key);
                     printf("\n");

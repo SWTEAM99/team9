@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdint.h>
 #include "crypto_api.h"
-#include "error.h"
 
 // 테스트 결과 파일
 #define TEST_RESULT_FILE "test_results.txt"
@@ -109,14 +108,37 @@ static void log_test_result(const char* test_name, int test_num,
 
 // AES 블록 암호화 래퍼 (CBC/CTR용)
 // crypto_api.h에 정의된 AES_CTX를 사용
+// 컨텍스트 기반으로 키 확장을 한 번만 수행하고 재사용
 static void aes_encrypt_wrapper(const byte* in, byte* out, const void* user_ctx) {
     const AES_CTX* ctx = (const AES_CTX*)user_ctx;
-    AES_encrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+
+    // 초기화된 컨텍스트를 사용하여 암호화 (키 확장은 이미 완료됨)
+    if (ctx->impl == AES_IMPL_REF && ctx->ref_ctx_initialized) {
+        aes_ref_encrypt_core(&ctx->ref_ctx, in, out);
+    }
+    else if (ctx->impl == AES_IMPL_TBL && ctx->tbl_ctx_initialized) {
+        aes_encrypt_core(&ctx->tbl_ctx, in, out);
+    }
+    else {
+        // 초기화되지 않은 경우 기존 방식 (직접 호출)
+        AES_encrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    }
 }
 
 static void aes_decrypt_wrapper(const byte* in, byte* out, const void* user_ctx) {
     const AES_CTX* ctx = (const AES_CTX*)user_ctx;
-    AES_decrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+
+    // 초기화된 컨텍스트를 사용하여 복호화 (키 확장은 이미 완료됨)
+    if (ctx->impl == AES_IMPL_REF && ctx->ref_ctx_initialized) {
+        aes_ref_decrypt_core(&ctx->ref_ctx, in, out);
+    }
+    else if (ctx->impl == AES_IMPL_TBL && ctx->tbl_ctx_initialized) {
+        aes_decrypt_core(&ctx->tbl_ctx, in, out);
+    }
+    else {
+        // 초기화되지 않은 경우 기존 방식 (직접 호출)
+        AES_decrypt_block(in, out, ctx->key, ctx->key_len, ctx->impl);
+    }
 }
 
 // ===== AES 단일 블록 테스트 =====
@@ -352,12 +374,30 @@ static int test_aes_cbc(void) {
         for (int i = 0; i < 3; i++) {
             byte key[32], iv[16], plaintext[64], expected[64], ciphertext[64];
             int ct_len;
-            AES_CTX ctx = { key, test_vectors[i].key_len, impl };
+            AES_CTX ctx = { key, test_vectors[i].key_len, impl, {0}, 0, {0}, 0 };
 
             hex_to_bytes(test_vectors[i].key_hex, key, test_vectors[i].key_len);
             hex_to_bytes(test_vectors[i].iv_hex, iv, 16);
             hex_to_bytes(test_vectors[i].plaintext_hex, plaintext, test_vectors[i].pt_len);
             hex_to_bytes(test_vectors[i].ciphertext_hex, expected, test_vectors[i].pt_len);
+
+            // 키 확장 수행 (한 번만)
+            if (impl == AES_IMPL_REF) {
+                if (AES_REF_init(&ctx.ref_ctx, key, test_vectors[i].key_len) != CRYPTO_OK) {
+                    printf("❌ %s %s 컨텍스트 초기화 실패\n", impl_name, test_vectors[i].name);
+                    all_passed = 0;
+                    continue;
+                }
+                ctx.ref_ctx_initialized = 1;
+            }
+            else if (impl == AES_IMPL_TBL) {
+                if (AES_TBL_init(&ctx.tbl_ctx, key, test_vectors[i].key_len) != CRYPTO_OK) {
+                    printf("❌ %s %s 컨텍스트 초기화 실패\n", impl_name, test_vectors[i].name);
+                    all_passed = 0;
+                    continue;
+                }
+                ctx.tbl_ctx_initialized = 1;
+            }
 
             // PKCS7 패딩이 추가되므로 암호문 길이는 블록 크기의 배수
             // NIST 벡터는 이미 블록 크기의 배수이므로 패딩이 추가되어 32바이트가 됨
@@ -439,7 +479,7 @@ static int test_aes_cbc(void) {
                 // 랜덤 평문 길이 생성 (1~63 바이트, 블록 크기의 배수가 아님)
                 int pt_len = 1 + (i % 63);  // 1~63 바이트
                 int ct_len, dec_len;
-                AES_CTX ctx = { key, key_len, impl };
+                AES_CTX ctx = { key, key_len, impl, {0}, 0, {0}, 0 };
 
                 // 랜덤 키 생성
                 if (CRYPTO_randomBytes(key, key_len) != CRYPTO_OK) {
@@ -457,6 +497,22 @@ static int test_aes_cbc(void) {
                 if (CRYPTO_randomBytes(plaintext, pt_len) != CRYPTO_OK) {
                     random_failed++;
                     continue;
+                }
+
+                // 키 확장 수행 (한 번만)
+                if (impl == AES_IMPL_REF) {
+                    if (AES_REF_init(&ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+                        random_failed++;
+                        continue;
+                    }
+                    ctx.ref_ctx_initialized = 1;
+                }
+                else if (impl == AES_IMPL_TBL) {
+                    if (AES_TBL_init(&ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+                        random_failed++;
+                        continue;
+                    }
+                    ctx.tbl_ctx_initialized = 1;
                 }
 
                 // 암호화 (PKCS7 패딩 자동 추가)
@@ -573,12 +629,30 @@ static int test_aes_ctr(void) {
         for (int i = 0; i < 3; i++) {
             byte key[32], nonce[16], plaintext[64], expected[64], ciphertext[64];
             byte nonce_copy[16];
-            AES_CTX ctx = { key, test_vectors[i].key_len, impl };
+            AES_CTX ctx = { key, test_vectors[i].key_len, impl, {0}, 0, {0}, 0 };
 
             hex_to_bytes(test_vectors[i].key_hex, key, test_vectors[i].key_len);
             hex_to_bytes(test_vectors[i].nonce_hex, nonce, 16);
             hex_to_bytes(test_vectors[i].plaintext_hex, plaintext, test_vectors[i].pt_len);
             hex_to_bytes(test_vectors[i].ciphertext_hex, expected, test_vectors[i].pt_len);
+
+            // 키 확장 수행 (한 번만)
+            if (impl == AES_IMPL_REF) {
+                if (AES_REF_init(&ctx.ref_ctx, key, test_vectors[i].key_len) != CRYPTO_OK) {
+                    printf("❌ %s %s 컨텍스트 초기화 실패\n", impl_name, test_vectors[i].name);
+                    all_passed = 0;
+                    continue;
+                }
+                ctx.ref_ctx_initialized = 1;
+            }
+            else if (impl == AES_IMPL_TBL) {
+                if (AES_TBL_init(&ctx.tbl_ctx, key, test_vectors[i].key_len) != CRYPTO_OK) {
+                    printf("❌ %s %s 컨텍스트 초기화 실패\n", impl_name, test_vectors[i].name);
+                    all_passed = 0;
+                    continue;
+                }
+                ctx.tbl_ctx_initialized = 1;
+            }
 
             memcpy(nonce_copy, nonce, 16);
             if (CTR_crypt(aes_encrypt_wrapper, AES_BLOCK_SIZE, nonce_copy,
@@ -652,7 +726,7 @@ static int test_aes_ctr(void) {
                 byte nonce_copy[16];
                 // 랜덤 평문 길이 생성 (1~63 바이트, 블록 크기의 배수가 아님)
                 int pt_len = 1 + (i % 63);  // 1~63 바이트
-                AES_CTX ctx = { key, key_len, impl };
+                AES_CTX ctx = { key, key_len, impl, {0}, 0, {0}, 0 };
 
                 // 랜덤 키 생성
                 if (CRYPTO_randomBytes(key, key_len) != CRYPTO_OK) {
@@ -670,6 +744,22 @@ static int test_aes_ctr(void) {
                 if (CRYPTO_randomBytes(plaintext, pt_len) != CRYPTO_OK) {
                     random_failed++;
                     continue;
+                }
+
+                // 키 확장 수행 (한 번만)
+                if (impl == AES_IMPL_REF) {
+                    if (AES_REF_init(&ctx.ref_ctx, key, key_len) != CRYPTO_OK) {
+                        random_failed++;
+                        continue;
+                    }
+                    ctx.ref_ctx_initialized = 1;
+                }
+                else if (impl == AES_IMPL_TBL) {
+                    if (AES_TBL_init(&ctx.tbl_ctx, key, key_len) != CRYPTO_OK) {
+                        random_failed++;
+                        continue;
+                    }
+                    ctx.tbl_ctx_initialized = 1;
                 }
 
                 // 암호화 (CTR은 패딩 불필요, 임의 길이 지원)
@@ -1149,48 +1239,48 @@ static int test_error_handling(void) {
 
 
 
-// 7. 에러 확인 함수 테스트
-printf("\n[7] 에러 확인 함수 테스트\n");
-if (crypto_is_success(CRYPTO_OK)) {
-    printf("✅ crypto_is_success(CRYPTO_OK) 통과\n");
-}
-else {
-    printf("❌ crypto_is_success(CRYPTO_OK) 실패\n");
-    all_passed = 0;
-}
+    // 7. 에러 확인 함수 테스트
+    printf("\n[7] 에러 확인 함수 테스트\n");
+    if (crypto_is_success(CRYPTO_OK)) {
+        printf("✅ crypto_is_success(CRYPTO_OK) 통과\n");
+    }
+    else {
+        printf("❌ crypto_is_success(CRYPTO_OK) 실패\n");
+        all_passed = 0;
+    }
 
-if (!crypto_is_success(CRYPTO_ERR_PARAM)) {
-    printf("✅ crypto_is_success(CRYPTO_ERR_PARAM) 통과\n");
-}
-else {
-    printf("❌ crypto_is_success(CRYPTO_ERR_PARAM) 실패\n");
-    all_passed = 0;
-}
+    if (!crypto_is_success(CRYPTO_ERR_PARAM)) {
+        printf("✅ crypto_is_success(CRYPTO_ERR_PARAM) 통과\n");
+    }
+    else {
+        printf("❌ crypto_is_success(CRYPTO_ERR_PARAM) 실패\n");
+        all_passed = 0;
+    }
 
-if (crypto_is_error(CRYPTO_ERR_PARAM)) {
-    printf("✅ crypto_is_error(CRYPTO_ERR_PARAM) 통과\n");
-}
-else {
-    printf("❌ crypto_is_error(CRYPTO_ERR_PARAM) 실패\n");
-    all_passed = 0;
-}
+    if (crypto_is_error(CRYPTO_ERR_PARAM)) {
+        printf("✅ crypto_is_error(CRYPTO_ERR_PARAM) 통과\n");
+    }
+    else {
+        printf("❌ crypto_is_error(CRYPTO_ERR_PARAM) 실패\n");
+        all_passed = 0;
+    }
 
-if (!crypto_is_error(CRYPTO_OK)) {
-    printf("✅ crypto_is_error(CRYPTO_OK) 통과\n");
-}
-else {
-    printf("❌ crypto_is_error(CRYPTO_OK) 실패\n");
-    all_passed = 0;
-}
+    if (!crypto_is_error(CRYPTO_OK)) {
+        printf("✅ crypto_is_error(CRYPTO_OK) 통과\n");
+    }
+    else {
+        printf("❌ crypto_is_error(CRYPTO_OK) 실패\n");
+        all_passed = 0;
+    }
 
-if (all_passed) {
-    printf("\n✅ 모든 오류 처리 테스트 통과\n");
-}
-else {
-    printf("\n❌ 일부 오류 처리 테스트 실패\n");
-}
-printf("\n");
-return all_passed;
+    if (all_passed) {
+        printf("\n✅ 모든 오류 처리 테스트 통과\n");
+    }
+    else {
+        printf("\n❌ 일부 오류 처리 테스트 실패\n");
+    }
+    printf("\n");
+    return all_passed;
 }
 
 // 메인 함수
@@ -1226,4 +1316,3 @@ int main(void) {
 
     return (all_passed && failed_tests == 0) ? 0 : 1;
 }
-

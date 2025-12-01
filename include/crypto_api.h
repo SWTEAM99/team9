@@ -19,6 +19,7 @@
 #include "hmac.h" // HMAC구현
 #include "modes.h" // CBC, CTR 모드 함수 선언 
 #include "utils.h" // 유틸리티 함수 구현은 utils.h와 utils.c에 있습니다 //
+
  /* =========================================================
   * 기본 타입 정의
   * ========================================================= */
@@ -50,11 +51,16 @@ typedef enum {
  * @brief AES 키 및 구현 정보를 담는 컨텍스트 구조체
  * @details CBC/CTR 모드의 콜백 함수에 전달하기 위한 컨텍스트입니다.
  *          콜백 함수에서 키와 구현 방식을 참조할 수 있도록 합니다.
+ *          키 확장은 init 함수에서 한 번만 수행하고, 이후 재사용합니다.
  */
 typedef struct {
     const byte* key;      /**< 암호화 키 포인터 (16, 24, 또는 32 바이트) */
     int         key_len;  /**< 키 길이 (바이트 단위): 16, 24, 또는 32 */
     AES_Impl    impl;     /**< AES 구현 방식 (AES_IMPL_REF 또는 AES_IMPL_TBL) */
+    AES_REF_CTX ref_ctx;  /**< Reference 구현용 컨텍스트 (impl == AES_IMPL_REF일 때만 사용) */
+    int         ref_ctx_initialized; /**< Reference 컨텍스트 초기화 여부 (0: 미초기화, 1: 초기화됨) */
+    AES_TBL_CTX tbl_ctx;  /**< T-table 구현용 컨텍스트 (impl == AES_IMPL_TBL일 때만 사용) */
+    int         tbl_ctx_initialized; /**< T-table 컨텍스트 초기화 여부 (0: 미초기화, 1: 초기화됨) */
 } AES_CTX;
 
 
@@ -96,22 +102,26 @@ int AES_decrypt_block(const byte in[AES_BLOCK_SIZE],
 
 
 /* =========================================================
-* 범용 CBC 모드 및 CTR 모드
-* ========================================================= */
+ * 범용 CBC 모드 (Generic CBC)
+ * ========================================================= */
 
-/**
- * @brief 범용 CBC 암호화 (항상 PKCS7 패딩 사용)
- * @param[in] encrypt_block 블록 암호화 함수 포인터
- * @param[in] block_size 블록 크기
- * @param[in] iv 초기화 벡터
- * @param[in] plaintext 평문 데이터
- * @param[in] pt_len 평문 길이
- * @param[out] ciphertext 암호문 출력 버퍼
- * @param[out] ct_len 암호문 길이 (출력)
- * @param[in] user_ctx 사용자 컨텍스트
- * @return CRYPTO_OK 성공, 그 외 실패
- * @details 실제 구현은 modes.c의 MODES_CBC_encrypt() 함수에서 수행됩니다.
- */
+ /**
+  * @brief 범용 CBC 모드 암호화
+  * @param[in] encrypt_block 블록 암호화 함수 포인터
+  * @param[in] block_size 블록 크기 (바이트 단위, 예: AES는 16)
+  * @param[in] iv 초기화 벡터 (IV) - block_size 바이트
+  * @param[in] plaintext 입력 평문 데이터
+  * @param[in] pt_len 평문 길이 (바이트 단위)
+  * @param[out] ciphertext 출력 암호문 버퍼 (충분한 크기여야 함)
+  * @param[out] ct_len 출력 암호문 길이 (바이트 단위)
+  * @param[in] user_ctx 사용자 컨텍스트 (키 등) - encrypt_block 콜백에 전달됨
+  * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류, CRYPTO_ERR_PADDING 패딩 오류
+  * @details
+  *   - 항상 PKCS7 패딩을 사용합니다.
+  *   - 출력 버퍼 크기는 (pt_len + block_size) 이상이어야 합니다.
+  *   - 모든 블록 암호 알고리즘과 함께 사용할 수 있습니다.
+  * @note IV는 예측 불가능한 랜덤 값이어야 합니다. IV_generate()를 사용하세요.
+  */
 int CBC_encrypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
@@ -122,17 +132,20 @@ int CBC_encrypt(
 );
 
 /**
- * @brief 범용 CBC 복호화 (항상 PKCS7 패딩 제거)
+ * @brief 범용 CBC 모드 복호화
  * @param[in] decrypt_block 블록 복호화 함수 포인터
- * @param[in] block_size 블록 크기
- * @param[in] iv 초기화 벡터
- * @param[in] ciphertext 암호문 데이터
- * @param[in] ct_len 암호문 길이
- * @param[out] plaintext 평문 출력 버퍼
- * @param[out] pt_len 평문 길이 (출력)
- * @param[in] user_ctx 사용자 컨텍스트
- * @return CRYPTO_OK 성공, 그 외 실패
- * @details 실제 구현은 modes.c의 MODES_CBC_decrypt() 함수에서 수행됩니다.
+ * @param[in] block_size 블록 크기 (바이트 단위, 예: AES는 16)
+ * @param[in] iv 초기화 벡터 (IV) - block_size 바이트
+ * @param[in] ciphertext 입력 암호문 데이터
+ * @param[in] ct_len 암호문 길이 (바이트 단위, block_size의 배수여야 함)
+ * @param[out] plaintext 출력 평문 버퍼 (충분한 크기여야 함)
+ * @param[out] pt_len 출력 평문 길이 (바이트 단위)
+ * @param[in] user_ctx 사용자 컨텍스트 (키 등) - decrypt_block 콜백에 전달됨
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류, CRYPTO_ERR_PADDING 패딩 오류
+ * @details
+ *   - 항상 PKCS7 패딩을 제거합니다.
+ *   - 출력 버퍼 크기는 ct_len 이상이어야 합니다.
+ *   - 모든 블록 암호 알고리즘과 함께 사용할 수 있습니다.
  */
 int CBC_decrypt(
     void (*decrypt_block)(const byte* in, byte* out, const void* user_ctx),
@@ -143,18 +156,28 @@ int CBC_decrypt(
     const void* user_ctx
 );
 
-/**
- * @brief 범용 CTR 암/복호화 (AES 또는 다른 블록 암호 모두 지원)
- * @param[in] encrypt_block 블록 암호화 함수 포인터
- * @param[in] block_size 블록 크기
- * @param[in,out] nonce_ctr Nonce/Counter (수정됨)
- * @param[in] in 입력 데이터
- * @param[in] len 입력 데이터 길이
- * @param[out] out 출력 데이터
- * @param[in] user_ctx 사용자 컨텍스트
- * @return CRYPTO_OK 성공, 그 외 실패
- * @details 실제 구현은 modes.c의 MODES_CTR_crypt() 함수에서 수행됩니다.
- */
+
+/* =========================================================
+ * CTR 모드
+ * ========================================================= */
+
+ /**
+  * @brief 범용 CTR 모드 암/복호화
+  * @param[in] encrypt_block 블록 암호화 함수 포인터 (CTR은 암호화 함수만 사용)
+  * @param[in] block_size 블록 크기 (바이트 단위, 예: AES는 16)
+  * @param[in,out] nonce_ctr Nonce/Counter 값 (block_size 바이트) - 함수 내부에서 증가됨
+  * @param[in] in 입력 데이터 (평문 또는 암호문)
+  * @param[in] len 입력 데이터 길이 (바이트 단위)
+  * @param[out] out 출력 데이터 버퍼 (len 바이트)
+  * @param[in] user_ctx 사용자 컨텍스트 (키 등) - encrypt_block 콜백에 전달됨
+  * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류
+  * @details
+  *   - CTR 모드는 암호화와 복호화가 동일한 함수입니다.
+  *   - 입력 길이가 블록 크기의 배수가 아니어도 됩니다.
+  *   - nonce_ctr은 함수 호출 후 변경되므로 재사용 시 주의하세요.
+  *   - 모든 블록 암호 알고리즘과 함께 사용할 수 있습니다.
+  * @note nonce는 예측 불가능한 랜덤 값이어야 합니다. IV_generate()를 사용하세요.
+  */
 int CTR_crypt(
     void (*encrypt_block)(const byte* in, byte* out, const void* user_ctx),
     int block_size,
@@ -205,17 +228,12 @@ int CRYPTO_randomBytes(byte* out, int len);
  */
 int IV_generate(byte iv[AES_BLOCK_SIZE]);
 
-/* =========================================================
- * 유틸리티 함수
- * ========================================================= */
-
- /**
-  * @brief 데이터를 16진수로 출력
-  * @param[in] data 출력할 데이터
-  * @param[in] len 데이터 길이 (바이트)
-  * @details 디버깅 및 테스트 목적으로 사용됩니다. stdout에 출력합니다.
-  *          실제 구현은 utils.c의 UTIL_printHex() 함수에서 수행됩니다.
-  */
+/**
+ * @brief 바이트 배열을 16진수 문자열로 출력
+ * @param[in] data 출력할 바이트 배열
+ * @param[in] len 데이터 길이 (바이트 단위)
+ * @details 디버깅 및 테스트 목적으로 사용됩니다. stdout에 출력합니다.
+ */
 void CRYPTO_printHex(const byte* data, int len);
 
 /**
@@ -226,32 +244,8 @@ void CRYPTO_printHex(const byte* data, int len);
  * @return 1 두 배열이 동일함, 0 다름
  * @details 타이밍 공격을 방지하기 위해 상수 시간 비교를 수행합니다.
  *          MAC 검증 등 보안이 중요한 비교에 사용하세요.
- *          실제 구현은 utils.c의 UTIL_isEqual() 함수에서 수행됩니다.
  */
 int CRYPTO_isEqual(const byte* a, const byte* b, int len);
-
-/**
- * @brief 파일 전체를 읽어서 메모리에 저장
- * @param[in] filename 파일 경로
- * @param[out] data 읽은 데이터를 저장할 버퍼 포인터 (호출자가 free해야 함)
- * @param[out] len 읽은 데이터 길이 (바이트)
- * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM/CRYPTO_ERR_MEMORY/CRYPTO_ERR_INTERNAL 실패
- * @details 파일을 바이너리 모드로 읽어서 동적으로 할당된 버퍼에 저장합니다.
- *          호출자는 반드시 반환된 버퍼를 free()로 해제해야 합니다.
- *          실제 구현은 utils.c의 UTIL_readFile() 함수에서 수행됩니다.
- */
-int CRYPTO_readFile(const char* filename, byte** data, size_t* len);
-
-/**
- * @brief 데이터를 파일에 저장
- * @param[in] filename 파일 경로
- * @param[in] data 저장할 데이터
- * @param[in] len 데이터 길이 (바이트)
- * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM/CRYPTO_ERR_INTERNAL 실패
- * @details 데이터를 바이너리 모드로 파일에 저장합니다.
- *          실제 구현은 utils.c의 UTIL_writeFile() 함수에서 수행됩니다.
- */
-int CRYPTO_writeFile(const char* filename, const byte* data, size_t len);
 
 
 /* =========================================================

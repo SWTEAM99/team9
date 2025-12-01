@@ -8,7 +8,6 @@
 #define UTILS_H
 
 #include <stddef.h>  // size_t
-#include "error.h"   // CRYPTO_OK, CRYPTO_ERR_* 등
 
  /* 바이트 타입 정의 (crypto_api.h와 중복 방지) */
 #ifndef BYTE_TYPE_DEFINED

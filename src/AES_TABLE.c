@@ -66,15 +66,6 @@ static int key_expansion_core(const uint8_t* key, int key_len, uint32_t* round_k
 
     return CRYPTO_OK;
 }
-
-/**
- * @brief GF(2^8)에서 xtime (x·2)
- */
-static inline uint8_t xtime_u8(uint8_t x) {
-    // 왼쪽 시프트 후, 최상위 비트가 1이면 0x1B와 XOR (AES 다항식)
-    return (uint8_t)((x << 1) ^ ((x & 0x80) ? 0x1B : 0));
-}
-
 /**
  * @brief GF(2^8)에서 곱셈
  */

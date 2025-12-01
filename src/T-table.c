@@ -1,20 +1,32 @@
 #include "AES_TBL_CORE.h"
 
 /*
-Te0[x] = S [x].[02, 01, 01, 03];
-Te1[x] = S [x].[03, 02, 01, 01];
-Te2[x] = S [x].[01, 03, 02, 01];
-Te3[x] = S [x].[01, 01, 03, 02];
-Te4[x] = S [x].[01, 01, 01, 01];
+ 암호화용 T-Table (Te0 ~ Te4)
+ - S[x]  : S-box 를 통과한 바이트 값
 
-Td0[x] = Si[x].[0e, 09, 0d, 0b];
-Td1[x] = Si[x].[0b, 0e, 09, 0d];
-Td2[x] = Si[x].[0d, 0b, 0e, 09];
-Td3[x] = Si[x].[09, 0d, 0b, 0e];
-Td4[x] = Si[x].[01, 01, 01, 01];
+ Te0~Te3 는 "SubBytes + ShiftRows + MixColumns" 를 한 번에 계산하기 위해 미리 만들어 둔 32비트 테이블.
+ Te4 는 마지막 라운드용으로, MixColumns 없이 SubBytes+ShiftRows 만 반영된 테이블.
+ 
+ Te0[x] = S[x] · [02, 01, 01, 03];
+ Te1[x] = S[x] · [03, 02, 01, 01]; 
+ Te2[x] = S[x] · [01, 03, 02, 01]; 
+ Te3[x] = S[x] · [01, 01, 03, 02]; 
+ Te4[x] = S[x] · [01, 01, 01, 01];
+ 
+ * 복호화용 T-Table (Td0 ~ Td4)
+ - Si[x]: Inverse S-box (InvSubBytes 에서 쓰는 S-box 역함수)
+ 
+ Td0~Td3 는 "InvSubBytes + InvShiftRows + InvMixColumns" 를 한 번에 계산하기 위해 미리 만들어 둔 32비트 테이블.
+ Td4 는 마지막 라운드용으로, InvMixColumns 없이 InvSubBytes+InvShiftRows 만 반영된 테이블.
+
+ Td0[x] = Si[x] · [0e, 09, 0d, 0b];
+ Td1[x] = Si[x] · [0b, 0e, 09, 0d];
+ Td2[x] = Si[x] · [0d, 0b, 0e, 09];
+ Td3[x] = Si[x] · [09, 0d, 0b, 0e];
+ Td4[x] = Si[x] · [01, 01, 01, 01];
 */
 
-// S-box ���̺�
+// S-box 테이블
 const uint8_t g_sbox[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -34,7 +46,7 @@ const uint8_t g_sbox[256] = {
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 };
 
-// Inverse S-box ���̺�
+// Inverse S-box 테이블
 const uint8_t g_inv_sbox[256] = {
     0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
     0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -54,7 +66,7 @@ const uint8_t g_inv_sbox[256] = {
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 };
 
-// Rcon ��� ���̺�
+// Rcon 상수 테이블
 const uint8_t g_rcon[] = {
     0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
 };

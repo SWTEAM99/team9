@@ -30,11 +30,45 @@
 typedef uint8_t byte;
 #endif
 
-// 함수 선언
-int AES_REF_encrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
-    const byte* key, int key_len);
-int AES_REF_decrypt_block(const byte in[AES_BLOCK_SIZE], byte out[AES_BLOCK_SIZE],
-    const byte* key, int key_len);
+/* =========================================================
+ * AES Reference 컨텍스트 정의
+ * ========================================================= */
+
+ /**
+  * @brief AES Reference 구현용 컨텍스트
+  */
+typedef struct {
+    byte round_keys[240];  // 라운드 키 (15 라운드 * 16 바이트 = 240 바이트)
+    byte rounds;           // 라운드 수 (AES-128=10, AES-192=12, AES-256=14)
+    byte key_len;          // 키 길이 (16/24/32)
+} AES_REF_CTX;
+
+/**
+ * @brief AES Reference 컨텍스트 초기화 (키 확장 수행)
+ * @param ctx AES_REF_CTX 포인터
+ * @param key 16/24/32바이트 키
+ * @param key_len 키 길이(16/24/32)
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류, CRYPTO_ERR_KEYLEN 키 길이 오류
+ */
+int AES_REF_init(AES_REF_CTX* ctx, const byte* key, int key_len);
+
+/**
+ * @brief AES 한 블록 암호화(Reference 기반, 컨텍스트 사용)
+ * @param ctx AES_REF_CTX 포인터
+ * @param in 입력 블록 (16바이트)
+ * @param out 출력 블록 (16바이트)
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류
+ */
+int aes_ref_encrypt_core(const AES_REF_CTX* ctx, const byte in[16], byte out[16]);
+
+/**
+ * @brief AES 한 블록 복호화(Reference 기반, 컨텍스트 사용)
+ * @param ctx AES_REF_CTX 포인터
+ * @param in 입력 블록 (16바이트)
+ * @param out 출력 블록 (16바이트)
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류
+ */
+int aes_ref_decrypt_core(const AES_REF_CTX* ctx, const byte in[16], byte out[16]);
 
 // 내부 함수들
 int aes_key_expansion(const byte* key, byte key_size, byte* round_keys);
