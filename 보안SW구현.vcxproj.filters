@@ -45,7 +45,7 @@
     <ClCompile Include="src\T-table.c">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="test\test.ignore">
+    <ClCompile Include="test\test.c">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
