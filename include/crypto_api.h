@@ -247,6 +247,26 @@ void CRYPTO_printHex(const byte* data, int len);
  */
 int CRYPTO_isEqual(const byte* a, const byte* b, int len);
 
+/**
+ * @brief 파일에서 데이터를 읽어옴
+ * @param[in] filename 읽을 파일 경로
+ * @param[out] data 읽은 데이터를 저장할 버퍼 포인터 (함수 내부에서 할당됨, 사용 후 free 필요)
+ * @param[out] len 읽은 데이터의 길이 (바이트 단위)
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류, CRYPTO_ERR_IO 파일 I/O 오류, CRYPTO_ERR_MEMORY 메모리 할당 오류
+ * @details 파일 전체를 읽어서 동적으로 할당된 버퍼에 저장합니다.
+ *          사용 후 반드시 free()로 메모리를 해제해야 합니다.
+ */
+int CRYPTO_readFile(const char* filename, byte** data, size_t* len);
+
+/**
+ * @brief 데이터를 파일에 씀
+ * @param[in] filename 쓸 파일 경로
+ * @param[in] data 쓸 데이터 버퍼
+ * @param[in] len 데이터 길이 (바이트 단위)
+ * @return CRYPTO_OK 성공, CRYPTO_ERR_PARAM 파라미터 오류, CRYPTO_ERR_IO 파일 I/O 오류
+ * @details 주어진 데이터를 파일에 바이너리 모드로 저장합니다.
+ */
+int CRYPTO_writeFile(const char* filename, const byte* data, size_t len);
 
 /* =========================================================
  * HMAC-SHA512
