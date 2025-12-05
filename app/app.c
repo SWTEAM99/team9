@@ -1,14 +1,8 @@
-﻿// main.c - 파일 암복호화 애플리케이션
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <time.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 #include "crypto_api.h"
 
 /* 진행률 표시를 위한 구조체 */
@@ -1327,8 +1321,8 @@ int main(int argc, char* argv[]) {
                 printf("\n");
                 continue;
             }
-            int tag_len = 32;
-            get_user_input(input, sizeof(input), "MAC 태그 길이 (바이트, 최대 64) [기본: 32]: ");
+            int tag_len = 64;
+            get_user_input(input, sizeof(input), "MAC 태그 길이 (바이트, 최대 64) [기본: 64]: ");
             if (strlen(input) > 0) {
                 tag_len = atoi(input);
                 if (tag_len <= 0 || tag_len > 64) {
@@ -1359,8 +1353,8 @@ int main(int argc, char* argv[]) {
                 printf("\n");
                 continue;
             }
-            int tag_len = 32;
-            get_user_input(input, sizeof(input), "MAC 태그 길이 (바이트, 최대 64) [기본: 32]: ");
+            int tag_len = 64;
+            get_user_input(input, sizeof(input), "MAC 태그 길이 (바이트, 최대 64) [기본: 64]: ");
             if (strlen(input) > 0) {
                 tag_len = atoi(input);
                 if (tag_len <= 0 || tag_len > 64) {
@@ -1607,7 +1601,7 @@ int main(int argc, char* argv[]) {
             int use_hmac = 1;  // 기본값: 사용
             byte hmac_key[64] = { 0 };
             int hmac_key_len = 0;
-            int hmac_tag_len = 32;
+            int hmac_tag_len = 64;
             byte hmac_salt[64] = { 0 };
             size_t hmac_salt_len = 0;
 
@@ -1709,7 +1703,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // HMAC 태그 길이 입력
-                get_user_input(input, sizeof(input), "HMAC 태그 길이 (바이트, 최대 64) [기본: 32]: ");
+                get_user_input(input, sizeof(input), "HMAC 태그 길이 (바이트, 최대 64) [기본: 64]: ");
                 if (strlen(input) > 0) {
                     hmac_tag_len = atoi(input);
                     if (hmac_tag_len <= 0 || hmac_tag_len > 64) {

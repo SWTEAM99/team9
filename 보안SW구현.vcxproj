@@ -161,7 +161,6 @@
     <ClCompile Include="src\sha512.c" />
     <ClCompile Include="src\T-table.c" />
     <ClCompile Include="src\utils.c" />
-    <ClCompile Include="test\test.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AES_REF.h" />
