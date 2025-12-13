@@ -1,10 +1,12 @@
-/**
+/*
  * @file crypto_api.h
  * @brief 암호화 API 헤더 파일
  * @details 이 파일은 암호화 라이브러리의 공개 API를 정의합니다.
  *          AES 블록 암호, CBC/CTR 모드, SHA-512 해시, HMAC-SHA512 등의 기능을 제공합니다.
  * @author 보안SW구현 프로젝트
  * @date 2025
+ * 
+ * GitHub: https://github.com/username/repository
  */
 
 #ifndef CRYPTO_API_H

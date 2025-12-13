@@ -1,4 +1,10 @@
-﻿#include <stdio.h>
+﻿/*
+ * Crypto Library Project
+ * Developed by: SWTeam9
+ * GitHub: https://github.com/SWTEAM99/team9
+ */
+
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
