@@ -1,45 +1,38 @@
-# ===============================
-# Compiler (자동 선택)
-# ===============================
-# 기본값은 gcc
-# macOS에서는 gcc가 clang alias로 동작
-# 사용자가 원하면: make CC=clang
-CC ?= gcc
+# ===== build settings =====
+CC      ?= gcc
+CFLAGS  := -Wall -Wextra -O2 -Iinclude
+LDFLAGS :=
 
-# ===============================
-# Compile Options
-# ===============================
-CFLAGS  = -Wall -Wextra -O2
-TARGET  = crypto_app
+TARGET  := crypto_app
 
-# ===============================
-# Source Files
-# ===============================
-SRC = app.c \
-      AES_REF.c \
-      AES_TABLE.c \
-      T-table.c \
-      crypto_api.c \
-      error.c \
-      hmac.c \
-      modes.c \
-      sha512.c \
-      utils.c
+# ===== sources =====
+APP_SRC := app/app.c
+LIB_SRCS := \
+  src/AES_REF.c \
+  src/AES_TABLE.c \
+  src/T-table.c \
+  src/crypto_api.c \
+  src/error.c \
+  src/hmac.c \
+  src/modes.c \
+  src/sha512.c \
+  src/utils.c
 
-OBJ = $(SRC:.c=.o)
+SRCS := $(APP_SRC) $(LIB_SRCS)
 
-# ===============================
-# Build Rules
-# ===============================
+# ===== objects (same folders) =====
+OBJS := $(SRCS:.c=.o)
+
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
+# compile rule (keeps .o next to .c)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(TARGET)
+	rm -f $(TARGET) $(OBJS)
 
 .PHONY: all clean
