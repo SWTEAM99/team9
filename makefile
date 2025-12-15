@@ -1,12 +1,13 @@
-# ===== build settings =====
 CC      ?= gcc
 CFLAGS  := -Wall -Wextra -O2 -Iinclude
 LDFLAGS :=
 
-TARGET  := crypto_app
+APP     := crypto_app
+TEST    := crypto_test
 
-# ===== sources =====
 APP_SRC := app/app.c
+TEST_SRC := test/test.c
+
 LIB_SRCS := \
   src/AES_REF.c \
   src/AES_TABLE.c \
@@ -18,21 +19,26 @@ LIB_SRCS := \
   src/sha512.c \
   src/utils.c
 
-SRCS := $(APP_SRC) $(LIB_SRCS)
+APP_OBJS  := $(APP_SRC:.c=.o)
+TEST_OBJS := $(TEST_SRC:.c=.o)
+LIB_OBJS  := $(LIB_SRCS:.c=.o)
 
-# ===== objects (same folders) =====
-OBJS := $(SRCS:.c=.o)
+all: $(APP)
 
-all: $(TARGET)
+app: $(APP)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
+test: $(TEST)
 
-# compile rule (keeps .o next to .c)
+$(APP): $(APP_OBJS) $(LIB_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(TEST): $(TEST_OBJS) $(LIB_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET) $(OBJS)
+	rm -f $(APP) $(TEST) $(APP_OBJS) $(TEST_OBJS) $(LIB_OBJS)
 
-.PHONY: all clean
+.PHONY: all app test clean
